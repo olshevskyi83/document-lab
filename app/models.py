@@ -120,6 +120,7 @@ class TaskRecord(BaseModel):
     text_path: str | None = None
     metadata_path: str | None = None
     report_path: str | None = None
+    library_path: str | None = None
     created_at: str
     updated_at: str
     approved_at: str | None = None

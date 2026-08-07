@@ -50,7 +50,15 @@ The host directory `/home/homelabuser/RemoteDrop` is mounted at `/remote` and sh
 └── Library/
 ```
 
-Missing directories are created at startup. Library categories are never hardcoded: all nested directories are discovered recursively. Uploaded originals are stored under `originals/` with collision-resistant names and are not deleted when a task is deleted. An upload enters its selected Library catalog only after manual approval; failed, duplicate, deleted, and unapproved uploads do not. Sources discovered by a Library scan stay in place and are never copied again on approval.
+Missing directories are created at startup. Library categories are never hardcoded: all nested directories are discovered recursively. Uploaded originals are stored under `originals/` with collision-resistant names. An upload enters its selected Library catalog only after manual approval; failed, duplicate, deleted, and unapproved uploads do not. Sources discovered by a Library scan stay in place and are never copied again on approval.
+
+### Document deletion
+
+The normal Delete action removes a document from Document Lab completely. After validating exact stored paths, regular-file type, managed-root containment, absence of symlinks, and SHA-256 identity for originals, it removes generated text, metadata, report, the Document Lab-owned upload original, and the managed Library copy when present. It never removes catalog directories or searches by filename.
+
+Deletion is refused while a task is processing. If a managed source or Library file cannot be removed safely, the database task is kept and the UI reports the error. Missing optional generated artifacts do not prevent cleanup.
+
+On startup, SQLite is migrated in place with a nullable `library_path` column when needed. Existing tasks remain readable; Document Lab backfills this field only when an exact existing Library file can be validated against the task SHA-256.
 
 Completed extraction artifacts:
 
@@ -135,7 +143,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 10. Upload hidden-text and scanned DJVU samples; confirm `djvu_hidden_text` and `djvu_ocr` respectively, with explicit page markers for OCR.
 11. Upload EPUB and DOCX samples and review title/author extraction.
 12. Stop the container while a task is processing, start it again, and confirm the task safely returns to the queue.
-13. Retry a failed task. Delete a non-processing task and confirm its original remains intact.
+13. Retry a failed task. Delete a non-processing task and confirm its managed original, Library copy, and generated artifacts are removed while catalog directories remain intact.
 14. Confirm no Qdrant, embedding, LLM, or external AI request is made.
 
 ## Configuration
@@ -157,4 +165,4 @@ Docker build arguments and the Compose runtime user default to `APP_UID=1000` an
 - Quality scoring is heuristic. Partially scanned documents receive warnings, but per-page selective OCR is not yet implemented.
 - Encrypted or severely damaged files fail with a persisted error and can be retried after correction.
 - EPUB reading order follows EbookLib document item order and may vary for unusual EPUB packages.
-- Deleting a task removes generated output/report only; immutable uploaded originals and Library files are retained intentionally.
+- Deleting a task removes its exact managed upload original, Library copy, and generated artifacts after safety and SHA-256 validation; it never deletes parent catalog directories.

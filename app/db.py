@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     text_path TEXT,
     metadata_path TEXT,
     report_path TEXT,
+    library_path TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     approved_at TEXT
@@ -51,6 +52,9 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
+            if "library_path" not in columns:
+                connection.execute("ALTER TABLE tasks ADD COLUMN library_path TEXT")
             connection.execute(
                 "UPDATE tasks SET status=?, progress=0, error=? WHERE status=?",
                 (TaskStatus.QUEUED, "Recovered after application restart", TaskStatus.PROCESSING),
@@ -90,7 +94,7 @@ class Database:
         columns = (
             "document_id", "sha256", "source_path", "source_filename", "relative_path",
             "catalog", "format", "content_type", "ocr_languages", "status", "progress",
-            "duplicate_of", "created_at", "updated_at",
+            "duplicate_of", "library_path", "created_at", "updated_at",
         )
         params = tuple(values.get(column) for column in columns[:-2]) + (now, now)
         with self._lock, self.connect() as connection:
@@ -104,6 +108,13 @@ class Database:
     def list_tasks(self, limit: int = 200) -> list[TaskRecord]:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM tasks ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [TaskRecord.from_row(row) for row in rows]
+
+    def list_tasks_missing_library_path(self) -> list[TaskRecord]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE library_path IS NULL ORDER BY id"
+            ).fetchall()
         return [TaskRecord.from_row(row) for row in rows]
 
     def get_task(self, task_id: int) -> TaskRecord | None:
@@ -156,10 +167,9 @@ class Database:
             )
         return cursor.rowcount == 1
 
-    def delete_task(self, task_id: int) -> TaskRecord | None:
-        task = self.get_task(task_id)
-        if task is None or task.status == TaskStatus.PROCESSING:
-            return None
+    def delete_task_record(self, task_id: int) -> bool:
         with self.connect() as connection:
-            connection.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-        return task
+            cursor = connection.execute(
+                "DELETE FROM tasks WHERE id=? AND status!=?", (task_id, TaskStatus.PROCESSING)
+            )
+        return cursor.rowcount == 1

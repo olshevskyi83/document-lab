@@ -44,7 +44,13 @@
       <td class="actions">
         {% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Approve</button></form>{% endif %}
         {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry</button></form>{% endif %}
-        {% if task.status != 'processing' %}<form action="/tasks/{{ task.id }}/delete" method="post"><button class="danger">Delete</button></form>{% endif %}
+        {% if task.status != 'processing' %}
+          {% if task.library_path %}
+          <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Файл буде фізично видалено з Library разом із результатами обробки. Продовжити?')"><button class="danger">Видалити файл</button></form>
+          {% else %}
+          <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Завантажений файл і результати обробки буде видалено. Продовжити?')"><button class="danger">Видалити</button></form>
+          {% endif %}
+        {% endif %}
       </td>
     </tr>{% else %}<tr><td colspan="7">No tasks yet.</td></tr>{% endfor %}</tbody>
   </table></div>

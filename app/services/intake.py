@@ -44,6 +44,13 @@ def enqueue_document(
         relative_path = path.relative_to(settings.documents_root).as_posix()
     except ValueError:
         relative_path = path.name
+    resolved_path = path.resolve()
+    resolved_library = settings.library_root.resolve()
+    library_path = (
+        str(resolved_path)
+        if not path.is_symlink() and resolved_path != resolved_library and resolved_library in resolved_path.parents
+        else None
+    )
     values = dict(
         document_id=document_id,
         sha256=sha256,
@@ -57,6 +64,7 @@ def enqueue_document(
         progress=100 if canonical else 0,
         status=TaskStatus.DUPLICATE if canonical else TaskStatus.QUEUED,
         duplicate_of=canonical.document_id if canonical else None,
+        library_path=library_path,
     )
     return database.create_task(**values)
 

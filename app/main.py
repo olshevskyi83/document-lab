@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode
@@ -17,6 +16,7 @@ from app.db import Database
 from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
 from app.services.dependencies import dependency_versions
+from app.services.deletion import DeletionError, backfill_managed_library_paths, delete_managed_document
 from app.services.intake import (
     LibraryScanResult,
     enqueue_document,
@@ -47,6 +47,7 @@ runtime_dependencies: dict[str, str] = {}
 async def lifespan(_: FastAPI):
     settings.ensure_directories()
     database.initialize()
+    backfill_managed_library_paths(settings, database)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -255,7 +256,11 @@ def approve_task(task_id: int):
         return redirect(error="Only ready tasks can be approved")
     if library_destination:
         relative_destination = library_destination.relative_to(settings.documents_root).as_posix()
-        database.update_task(task_id, relative_path=relative_destination)
+        database.update_task(
+            task_id,
+            relative_path=relative_destination,
+            library_path=str(library_destination.resolve()),
+        )
         if task.metadata_path and Path(task.metadata_path).is_file():
             metadata = json.loads(Path(task.metadata_path).read_text(encoding="utf-8"))
             metadata["relative_path"] = relative_destination
@@ -279,16 +284,8 @@ def retry_task(task_id: int):
 
 @app.post("/tasks/{task_id}/delete")
 def delete_task(task_id: int):
-    task = database.delete_task(task_id)
-    if task is None:
-        return redirect(error="Task not found or currently processing")
-    if task.text_path:
-        output = Path(task.text_path).parent.resolve()
-        ready = settings.ready_root.resolve()
-        if ready in output.parents:
-            shutil.rmtree(output, ignore_errors=True)
-    if task.report_path:
-        report = Path(task.report_path).resolve()
-        if report.parent == settings.reports_root.resolve():
-            report.unlink(missing_ok=True)
-    return redirect(message=f"Task {task_id} deleted; original retained")
+    try:
+        delete_managed_document(task_id, settings, database)
+    except DeletionError as exc:
+        return redirect(error=str(exc))
+    return redirect(message=f"Task {task_id} and managed files deleted")
