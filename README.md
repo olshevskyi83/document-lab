@@ -23,6 +23,7 @@ Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, M
 
 - PDF: `pdftotext` first; OCRmyPDF only when quality is insufficient; then `pdftotext` again.
 - Partial-PDF OCR detects Ghostscript automatically. Ghostscript 10.00.0–10.02.0, unavailable, or unparseable versions use a conservative force-OCR compatibility strategy instead of `--redo-ocr`.
+- Every OCRmyPDF strategy explicitly uses `--output-type pdf`; PDF/A generation is disabled because OCR PDFs are temporary inputs for `pdftotext`, not archival artifacts.
 - DJVU: `djvutxt`/`djvused` first; `ddjvu` plus Tesseract only when hidden text is insufficient.
 - OCR selections: auto, `ukr`, `rus`, `eng`, `deu`, `spa`, and useful two-language combinations.
 - Worker concurrency is intentionally one. HTTP requests never run OCR.

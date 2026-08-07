@@ -4,7 +4,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.services.commands import CommandError, run_command
+from app.services.commands import (
+    CommandError,
+    CommandExecutionError,
+    CommandTimeoutError,
+    run_command,
+)
 
 
 OCR_LANGUAGE_OPTIONS = {
@@ -40,6 +45,22 @@ class OCRPDFStrategy:
     name: str
     command: list[str]
     ghostscript_version: str | None
+
+
+class OCRPDFError(CommandError):
+    pass
+
+
+class OCRPDFTimeoutError(OCRPDFError):
+    pass
+
+
+class OCREngineError(OCRPDFError):
+    pass
+
+
+class PDFPostprocessingError(OCRPDFError):
+    pass
 
 
 def parse_version(value: str) -> tuple[int, int, int] | None:
@@ -82,6 +103,7 @@ def select_ocr_pdf_strategy(
         name = "force_ocr_full_scan"
     if languages:
         arguments.extend(["-l", "+".join(languages)])
+    arguments.extend(["--output-type", "pdf"])
     arguments.extend([str(source), str(target)])
     return OCRPDFStrategy(name=name, command=arguments, ghostscript_version=ghostscript_version)
 
@@ -106,5 +128,23 @@ def ocr_pdf(
     strategy = select_ocr_pdf_strategy(
         source, target, languages, redo=redo, ghostscript_version=version
     )
-    run_command(strategy.command, timeout=timeout)
+    try:
+        run_command(strategy.command, timeout=timeout)
+    except CommandTimeoutError as exc:
+        raise OCRPDFTimeoutError(f"OCRmyPDF command timeout: {exc}") from exc
+    except CommandExecutionError as exc:
+        stderr = exc.stderr
+        normalized = stderr.lower()
+        postprocessing_markers = (
+            "ghostscript",
+            "pdf/a",
+            "postprocess",
+            "post-process",
+            "runpdf",
+            "qpdf",
+            "pdf rendering",
+        )
+        if any(marker in normalized for marker in postprocessing_markers):
+            raise PDFPostprocessingError(f"PDF postprocessing failure: {stderr}") from exc
+        raise OCREngineError(f"OCR/Tesseract failure: {stderr}") from exc
     return strategy

@@ -9,6 +9,18 @@ class CommandError(RuntimeError):
     pass
 
 
+class CommandTimeoutError(CommandError):
+    pass
+
+
+class CommandExecutionError(CommandError):
+    def __init__(self, command: str, returncode: int, stderr: str):
+        self.command = command
+        self.returncode = returncode
+        self.stderr = stderr
+        super().__init__(f"{command} failed with exit code {returncode}: {stderr}")
+
+
 def require_binary(name: str) -> str:
     resolved = shutil.which(name)
     if not resolved:
@@ -33,7 +45,9 @@ def run_command(
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise CommandError(f"Command timed out: {Path(arguments[0]).name}") from exc
+        raise CommandTimeoutError(f"Command timed out: {Path(arguments[0]).name}") from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
-        raise CommandError(f"{Path(arguments[0]).name} failed: {(stderr or '').strip()}") from exc
+        raise CommandExecutionError(
+            Path(arguments[0]).name, exc.returncode, (stderr or "").strip()
+        ) from exc
