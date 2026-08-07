@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
-from app.services.commands import run_command
+from app.services.commands import CommandError, run_command
 
 
 OCR_LANGUAGE_OPTIONS = {
@@ -33,17 +35,76 @@ def ocr_image(image_path: Path, languages: list[str], timeout: int) -> str:
     return result.stdout
 
 
-def build_ocr_pdf_command(source: Path, target: Path, languages: list[str], *, redo: bool) -> list[str]:
-    if redo:
+@dataclass(frozen=True)
+class OCRPDFStrategy:
+    name: str
+    command: list[str]
+    ghostscript_version: str | None
+
+
+def parse_version(value: str) -> tuple[int, int, int] | None:
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", value)
+    if not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def ghostscript_redo_affected(version: str | None) -> bool:
+    parsed = parse_version(version or "")
+    return parsed is not None and (10, 0, 0) <= parsed <= (10, 2, 0)
+
+
+def detect_ghostscript_version(timeout: int) -> str | None:
+    try:
+        result = run_command(["gs", "--version"], timeout=timeout)
+    except CommandError:
+        return None
+    return result.stdout.strip() or None
+
+
+def select_ocr_pdf_strategy(
+    source: Path,
+    target: Path,
+    languages: list[str],
+    *,
+    redo: bool,
+    ghostscript_version: str | None,
+) -> OCRPDFStrategy:
+    parsed_version = parse_version(ghostscript_version or "")
+    if redo and parsed_version and not ghostscript_redo_affected(ghostscript_version):
         arguments = ["ocrmypdf", "--redo-ocr", "--rotate-pages"]
+        name = "redo_ocr"
+    elif redo:
+        arguments = ["ocrmypdf", "--force-ocr", "--rotate-pages"]
+        name = "force_ocr_ghostscript_compat" if parsed_version else "force_ocr_ghostscript_unknown"
     else:
         arguments = ["ocrmypdf", "--force-ocr", "--deskew", "--rotate-pages"]
+        name = "force_ocr_full_scan"
     if languages:
         arguments.extend(["-l", "+".join(languages)])
     arguments.extend([str(source), str(target)])
-    return arguments
+    return OCRPDFStrategy(name=name, command=arguments, ghostscript_version=ghostscript_version)
 
 
-def ocr_pdf(source: Path, target: Path, languages: list[str], timeout: int, *, redo: bool = False) -> None:
-    arguments = build_ocr_pdf_command(source, target, languages, redo=redo)
-    run_command(arguments, timeout=timeout)
+def build_ocr_pdf_command(
+    source: Path,
+    target: Path,
+    languages: list[str],
+    *,
+    redo: bool,
+    ghostscript_version: str | None = "10.03.0",
+) -> list[str]:
+    return select_ocr_pdf_strategy(
+        source, target, languages, redo=redo, ghostscript_version=ghostscript_version
+    ).command
+
+
+def ocr_pdf(
+    source: Path, target: Path, languages: list[str], timeout: int, *, redo: bool = False
+) -> OCRPDFStrategy:
+    version = detect_ghostscript_version(timeout)
+    strategy = select_ocr_pdf_strategy(
+        source, target, languages, redo=redo, ghostscript_version=version
+    )
+    run_command(strategy.command, timeout=timeout)
+    return strategy

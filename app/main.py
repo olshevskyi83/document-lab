@@ -189,6 +189,34 @@ def download_task_text(task_id: int):
     )
 
 
+def download_json_artifact(task_id: int, attribute: str, root: Path, suffix: str):
+    task = database.get_task(task_id)
+    path_value = getattr(task, attribute, None) if task else None
+    if not path_value:
+        raise HTTPException(404, f"{suffix.title()} not found")
+    artifact = Path(path_value).resolve()
+    resolved_root = root.resolve()
+    if artifact.parent != resolved_root and resolved_root not in artifact.parents:
+        raise HTTPException(404, f"{suffix.title()} not found")
+    if not artifact.is_file():
+        raise HTTPException(404, f"{suffix.title()} not found")
+    return FileResponse(
+        artifact,
+        media_type="application/json",
+        filename=f"{Path(task.source_filename).stem}-{suffix}.json",
+    )
+
+
+@app.get("/tasks/{task_id}/download-metadata")
+def download_task_metadata(task_id: int):
+    return download_json_artifact(task_id, "metadata_path", settings.ready_root, "metadata")
+
+
+@app.get("/tasks/{task_id}/download-report")
+def download_task_report(task_id: int):
+    return download_json_artifact(task_id, "report_path", settings.reports_root, "report")
+
+
 @app.post("/tasks/{task_id}/approve")
 def approve_task(task_id: int):
     task = database.get_task(task_id)

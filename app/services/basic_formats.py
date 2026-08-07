@@ -14,7 +14,11 @@ def process_text(path: Path, document_format: str) -> ExtractionResult:
     match = from_path(path).best()
     if match is None:
         raise ValueError("Unable to determine text encoding")
-    return ExtractionResult(text=str(match), method=f"{document_format}_text")
+    return ExtractionResult(
+        text=str(match),
+        method=f"{document_format}_text",
+        warnings=[f"Physical page count is unknown for {document_format.upper()}"],
+    )
 
 
 def process_docx(path: Path) -> ExtractionResult:
@@ -29,6 +33,7 @@ def process_docx(path: Path) -> ExtractionResult:
         method="docx_text",
         title=properties.title or "",
         author=properties.author or "",
+        warnings=["Physical page count is unknown for DOCX without rendering"],
     )
 
 
@@ -42,4 +47,10 @@ def process_epub(path: Path) -> ExtractionResult:
             blocks.append(text)
     title = next(iter(book.get_metadata("DC", "title")), ("", {}))[0]
     author = next(iter(book.get_metadata("DC", "creator")), ("", {}))[0]
-    return ExtractionResult(text="\n\n".join(blocks), method="epub_text", title=title, author=author)
+    return ExtractionResult(
+        text="\n\n".join(blocks),
+        method="epub_text",
+        title=title,
+        author=author,
+        warnings=["Physical page count is unknown for reflowable EPUB content"],
+    )

@@ -50,6 +50,9 @@ class DocumentMetadata(BaseModel):
     extraction_method: str
     ocr_used: bool = False
     ocr_languages: list[str] = Field(default_factory=list)
+    ocr_page_count: int = 0
+    ocr_strategy: str = "none"
+    ghostscript_version: str | None = None
     character_count: int = 0
     word_count: int = 0
     created_at: str
@@ -81,6 +84,9 @@ class ExtractionResult(BaseModel):
     partially_scanned: bool = False
     ocr_used: bool = False
     ocr_languages: list[str] = Field(default_factory=list)
+    ocr_page_count: int = 0
+    ocr_strategy: str = "none"
+    ghostscript_version: str | None = None
     title: str = ""
     author: str = ""
     warnings: list[str] = Field(default_factory=list)

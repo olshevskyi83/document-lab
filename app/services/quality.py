@@ -9,6 +9,10 @@ from app.models import QualityReport
 PAGE_MARKER = re.compile(r"^--- PAGE (\d+) ---$", re.MULTILINE)
 
 
+def count_page_markers(text: str) -> int:
+    return len({int(number) for number in PAGE_MARKER.findall(text)})
+
+
 @dataclass(frozen=True)
 class PageCoverage:
     page_count: int

@@ -22,6 +22,7 @@ upload / Library scan
 Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, Markdown, EPUB, and DOCX.
 
 - PDF: `pdftotext` first; OCRmyPDF only when quality is insufficient; then `pdftotext` again.
+- Partial-PDF OCR detects Ghostscript automatically. Ghostscript 10.00.0–10.02.0, unavailable, or unparseable versions use a conservative force-OCR compatibility strategy instead of `--redo-ocr`.
 - DJVU: `djvutxt`/`djvused` first; `ddjvu` plus Tesseract only when hidden text is insufficient.
 - OCR selections: auto, `ukr`, `rus`, `eng`, `deu`, `spa`, and useful two-language combinations.
 - Worker concurrency is intentionally one. HTTP requests never run OCR.
@@ -51,6 +52,8 @@ Completed extraction artifacts:
 /remote/Documents/ready/<document_id>/metadata.json
 /remote/Documents/reports/<document_id>.json
 ```
+
+Metadata and reports include document pages when determinable, meaningful text pages, OCR pages, extraction coverage, OCR strategy, Ghostscript version, and completeness warnings. DOCX and reflowable EPUB pagination is explicitly reported as unknown because reliable physical page counts require rendering.
 
 SQLite state is stored at `./data/document_lab.sqlite3` on the host. Interrupted `processing` tasks return to `queued` on application restart. Exact SHA-256 duplicates are marked `duplicate` and are not queued; equal filenames with different content are distinct.
 

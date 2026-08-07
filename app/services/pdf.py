@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import re
 import tempfile
 from pathlib import Path
 
 from app.models import ExtractionResult
 from app.services.commands import run_command
 from app.services.ocr import ocr_pdf
-from app.services.quality import analyze_page_coverage, evaluate_text_quality
+from app.services.quality import analyze_page_coverage, count_page_markers, evaluate_text_quality
 
 
 def pdf_info(path: Path, timeout: int) -> dict[str, str]:
@@ -35,11 +34,14 @@ def extract_pdf_text(path: Path, timeout: int, page_count: int | None = None) ->
 
 def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionResult:
     info = pdf_info(path, timeout)
-    page_count = int(info.get("pages", "0")) or None
+    page_value = info.get("pages", "").strip()
+    page_count = int(page_value) if page_value.isdigit() and int(page_value) > 0 else None
     initial_text = extract_pdf_text(path, timeout, page_count)
     initial_quality = evaluate_text_quality(initial_text, page_count)
     initial_coverage = analyze_page_coverage(initial_text, page_count)
     warnings = list(initial_quality.warnings)
+    if page_count is None:
+        warnings.append("PDF page count is unknown because pdfinfo did not return a usable value")
     if initial_quality.sufficient and not (initial_coverage and initial_coverage.partially_scanned):
         return ExtractionResult(
             text=initial_text,
@@ -61,11 +63,27 @@ def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionRes
         )
     with tempfile.TemporaryDirectory(prefix="document-lab-pdf-") as temporary:
         ocr_path = Path(temporary) / "ocr.pdf"
-        ocr_pdf(path, ocr_path, languages, timeout, redo=partial_fallback)
+        strategy = ocr_pdf(path, ocr_path, languages, timeout, redo=partial_fallback)
         text = extract_pdf_text(ocr_path, timeout, page_count)
     final_coverage = analyze_page_coverage(text, page_count)
-    if page_count and len(re.findall(r"^--- PAGE", text, re.MULTILINE)) < page_count:
-        warnings.append("OCR output contains fewer text-bearing pages than the PDF page count")
+    marker_count = count_page_markers(text)
+    if page_count and marker_count != page_count:
+        warnings.append(f"PDF page-marker mismatch: expected {page_count}, found {marker_count}")
+    if final_coverage and final_coverage.ratio < 1:
+        warnings.append(
+            f"Extraction incomplete after OCR: {final_coverage.text_page_count}/{final_coverage.page_count} "
+            f"pages contain meaningful text ({final_coverage.ratio:.1%} coverage)"
+        )
+    if strategy.name.startswith("force_ocr"):
+        ocr_page_count = page_count or (final_coverage.text_page_count if final_coverage else 0)
+    else:
+        before = initial_coverage.text_page_count if initial_coverage else 0
+        ocr_page_count = max(0, page_count - before) if page_count else 0
+    if partial_fallback and strategy.name != "redo_ocr":
+        warnings.append(
+            f"Partial-PDF redo was replaced with {strategy.name} for Ghostscript "
+            f"{strategy.ghostscript_version or 'unknown'} compatibility"
+        )
     return ExtractionResult(
         text=text,
         method="pdf_partial_ocr" if partial_fallback else "pdf_ocr",
@@ -77,6 +95,9 @@ def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionRes
         partially_scanned=partial_fallback,
         ocr_used=True,
         ocr_languages=languages,
+        ocr_page_count=ocr_page_count,
+        ocr_strategy=strategy.name,
+        ghostscript_version=strategy.ghostscript_version,
         title=info.get("title", ""),
         author=info.get("author", ""),
         warnings=warnings,
