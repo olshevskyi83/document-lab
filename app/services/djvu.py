@@ -7,6 +7,12 @@ from typing import Callable
 from app.models import ExtractionResult
 from app.services.commands import CommandCancelledError, run_command
 from app.services.ocr import ocr_image
+from app.services.ocr_language import (
+    analyze_language,
+    choose_auto_ocr_languages,
+    expected_script_for_languages,
+    ocr_plausibility,
+)
 from app.services.quality import analyze_page_coverage, count_page_markers, evaluate_text_quality
 
 
@@ -65,6 +71,7 @@ def process_djvu(
     if page_count and hidden_markers != page_count:
         warnings.append(f"DJVU page-marker mismatch: expected {page_count}, found {hidden_markers}")
     if quality.sufficient and not (hidden_coverage and hidden_coverage.partially_scanned):
+        profile = analyze_language(hidden)
         return ExtractionResult(
             text=hidden,
             method="djvu_hidden_text",
@@ -73,6 +80,9 @@ def process_djvu(
             initial_text_coverage=hidden_coverage.ratio if hidden_coverage else None,
             text_page_count=hidden_coverage.text_page_count if hidden_coverage else None,
             text_coverage=hidden_coverage.ratio if hidden_coverage else None,
+            detected_script=profile.script,
+            detected_language=profile.language,
+            ocr_plausibility=ocr_plausibility(hidden),
             warnings=warnings,
         )
     warnings.append("DJVU hidden text was absent or insufficient; OCR fallback used")
@@ -89,18 +99,38 @@ def process_djvu(
         images = sorted(Path(temporary).glob("page-*.tif"))
         if not images:
             raise RuntimeError("ddjvu produced no page images")
+        selected_languages = languages
+        if not selected_languages:
+            sample_images = images[:3]
+            if len(images) > 3:
+                sample_images = [images[0], images[len(images) // 2], images[-1]]
+            selection = choose_auto_ocr_languages(
+                hint_text=hidden,
+                sample_images=sample_images,
+                ocr_sample=lambda image, candidate: ocr_image(
+                    image, candidate, timeout, cancel_check
+                ),
+            )
+            selected_languages = selection.languages
+            warnings.extend(selection.warnings)
         for number, image in enumerate(images, 1):
             if cancel_check and cancel_check():
                 raise CommandCancelledError("DJVU OCR cancelled")
             pages.append(
                 f"--- PAGE {number} ---\n"
-                f"{ocr_image(image, languages, timeout, cancel_check).strip()}"
+                f"{ocr_image(image, selected_languages, timeout, cancel_check).strip()}"
             )
             if progress_callback:
                 total = page_count or len(images)
                 progress = 25 + int(50 * number / total)
                 progress_callback("djvu_ocr", f"Сторінка {number} з {total}", progress)
     text = "\n\n".join(pages)
+    profile = analyze_language(text)
+    plausibility = ocr_plausibility(
+        text, expected_script_for_languages(selected_languages)
+    )
+    if plausibility < 0.65:
+        warnings.append("OCR text may be corrupted or wrong language model was used")
     final_page_count = page_count or len(pages)
     final_coverage = analyze_page_coverage(text, final_page_count)
     marker_count = count_page_markers(text)
@@ -121,8 +151,11 @@ def process_djvu(
         text_coverage=final_coverage.ratio if final_coverage else None,
         partially_scanned=bool(hidden_coverage and hidden_coverage.partially_scanned),
         ocr_used=True,
-        ocr_languages=languages,
+        ocr_languages=selected_languages,
         ocr_page_count=len(pages),
         ocr_strategy="djvu_tesseract_all_pages",
+        detected_script=profile.script,
+        detected_language=profile.language,
+        ocr_plausibility=plausibility,
         warnings=warnings,
     )

@@ -37,7 +37,7 @@ from app.services.library import (
     rename_catalog,
     safe_library_path,
 )
-from app.services.ocr import OCR_LANGUAGE_OPTIONS
+from app.services.ocr import OCR_LANGUAGE_LABELS, OCR_LANGUAGE_OPTIONS
 from app.services.report import atomic_write_text
 
 settings = get_settings()
@@ -116,6 +116,7 @@ def dashboard(request: Request):
             "catalogs": discover_catalogs(settings.library_root),
             "tree": library_tree(settings.library_root),
             "ocr_options": OCR_LANGUAGE_OPTIONS,
+            "ocr_labels": OCR_LANGUAGE_LABELS,
             "document_types": list(DocumentType),
             "statuses": TaskStatus,
             "message": request.query_params.get("message", ""),

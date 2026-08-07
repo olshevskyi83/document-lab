@@ -24,6 +24,23 @@ OCR_LANGUAGE_OPTIONS = {
     "rus+eng": ["rus", "eng"],
     "deu+eng": ["deu", "eng"],
     "spa+eng": ["spa", "eng"],
+    "rus+ukr": ["rus", "ukr"],
+    "rus+ukr+eng": ["rus", "ukr", "eng"],
+}
+
+OCR_LANGUAGE_LABELS = {
+    "auto": "Auto (smart detection)",
+    "rus": "Russian — rus",
+    "ukr": "Ukrainian — ukr",
+    "eng": "English — eng",
+    "deu": "German — deu",
+    "spa": "Spanish — spa",
+    "rus+eng": "Russian + English — rus+eng",
+    "ukr+eng": "Ukrainian + English — ukr+eng",
+    "deu+eng": "German + English — deu+eng",
+    "spa+eng": "Spanish + English — spa+eng",
+    "rus+ukr": "Russian + Ukrainian — rus+ukr",
+    "rus+ukr+eng": "Russian + Ukrainian + English — rus+ukr+eng",
 }
 
 

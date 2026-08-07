@@ -31,7 +31,9 @@ Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, M
 - Every OCRmyPDF strategy explicitly uses `--output-type pdf`; PDF/A generation is disabled because OCR PDFs are temporary inputs for `pdftotext`, not archival artifacts.
 - `pikepdf==9.11.0` is pinned for OCRmyPDF 16.10.4 compatibility. OCRmyPDF allows `pikepdf>=8.10.1` without an upper bound, but pikepdf 10 removed the deprecated `Pdf.check()` method still called by OCRmyPDF 16.10.4 after OCR. The 9.11.0 pin retains that API and provides reproducible Python 3.12 Linux wheels.
 - DJVU: `djvutxt`/`djvused` first; `ddjvu` plus Tesseract only when hidden text is insufficient.
-- OCR selections: auto, `ukr`, `rus`, `eng`, `deu`, `spa`, and useful two-language combinations.
+- OCR selections map explicitly to Tesseract models: Russian `rus`, Ukrainian `ukr`, English `eng`, German `deu`, Spanish `spa`, plus `rus+eng`, `ukr+eng`, `rus+ukr`, and `rus+ukr+eng` combinations.
+- Smart Auto never delegates language choice to Tesseract's implicit default. It uses available hidden/sample text first; for fully scanned input it compares OCR from at most three representative sample pages with Russian, Ukrainian, combined Cyrillic/English, and English candidates, then OCRs the full document once with the best-scoring set.
+- OCR quality includes Unicode script/language heuristics and a plausibility score based on script agreement, vowel/consonant noise, malformed tokens, excessive case noise, and mixed-script tokens. Abundant but implausible text is marked insufficient with a wrong-language/corruption warning.
 - Worker concurrency is intentionally one. HTTP requests never run OCR.
 
 ### Progress and cancellation

@@ -55,6 +55,9 @@ class DocumentMetadata(BaseModel):
     ocr_page_count: int = 0
     ocr_strategy: str = "none"
     ghostscript_version: str | None = None
+    detected_script: str = "Unknown"
+    detected_language: str = "Unknown"
+    ocr_plausibility: float = 0.0
     character_count: int = 0
     word_count: int = 0
     created_at: str
@@ -68,6 +71,9 @@ class QualityReport(BaseModel):
     character_count: int
     word_count: int
     printable_ratio: float
+    detected_script: str = "Unknown"
+    detected_language: str = "Unknown"
+    ocr_plausibility: float = 0.0
     pages_with_text: int | None = None
     page_count: int | None = None
     text_coverage: float | None = None
@@ -89,6 +95,9 @@ class ExtractionResult(BaseModel):
     ocr_page_count: int = 0
     ocr_strategy: str = "none"
     ghostscript_version: str | None = None
+    detected_script: str = "Unknown"
+    detected_language: str = "Unknown"
+    ocr_plausibility: float = 0.0
     title: str = ""
     author: str = ""
     warnings: list[str] = Field(default_factory=list)

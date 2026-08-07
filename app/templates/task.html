@@ -23,7 +23,10 @@
     <dt>Extraction method</dt><dd><code>{{ processing_method }}</code></dd>
     <dt>OCR strategy</dt><dd><code>{{ metadata.get('ocr_strategy', 'none') }}</code>{% if metadata.get('ghostscript_version') %} (Ghostscript {{ metadata.get('ghostscript_version') }}){% endif %}</dd>
     <dt>OCR used</dt><dd>{{ 'Yes' if metadata.ocr_used else 'No' }}</dd>
-    <dt>OCR languages</dt><dd>{{ metadata.ocr_languages | join(', ') if metadata.ocr_languages else ('Auto/default' if metadata.ocr_used else '—') }}</dd>
+    <dt>Detected script</dt><dd>{{ metadata.get('detected_script', 'Unknown') }}</dd>
+    <dt>Detected language</dt><dd>{{ metadata.get('detected_language', 'Unknown') }}</dd>
+    <dt>Selected OCR languages</dt><dd>{{ metadata.ocr_languages | join('+') if metadata.ocr_languages else '—' }}</dd>
+    <dt>OCR plausibility</dt><dd>{{ '%.2f' | format(metadata.get('ocr_plausibility', 0)) }}</dd>
     <dt>Document pages</dt><dd>{{ metadata.page_count if metadata.page_count is not none else 'Unknown' }}</dd>
     <dt>Pages with extracted text</dt><dd>{{ metadata.get('text_page_count') if metadata.get('text_page_count') is not none else 'Unknown' }}</dd>
     <dt>Pages OCRed</dt><dd>{{ metadata.get('ocr_page_count', 0) }}</dd>

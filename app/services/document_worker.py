@@ -12,6 +12,7 @@ from app.services.commands import CommandCancelledError
 from app.services.deletion import DeletionError, cleanup_cancelled_task
 from app.services.djvu import process_djvu
 from app.services.ocr import parse_ocr_languages
+from app.services.ocr_language import expected_script_for_languages
 from app.services.pdf import process_pdf
 from app.services.quality import evaluate_text_quality
 from app.services.report import atomic_write_model, atomic_write_text
@@ -74,7 +75,13 @@ class DocumentProcessor:
         text = clean_text(extraction.text)
         self._check_cancelled(task_id)
         self._progress(task_id, "verifying", "Перевірка повноти extraction", 90)
-        quality = evaluate_text_quality(text, extraction.page_count)
+        quality = evaluate_text_quality(
+            text,
+            extraction.page_count,
+            expected_script_for_languages(extraction.ocr_languages)
+            if extraction.ocr_used
+            else None,
+        )
         quality.warnings = list(dict.fromkeys([*quality.warnings, *extraction.warnings]))
         now = utc_now()
         metadata = DocumentMetadata(
@@ -100,6 +107,17 @@ class DocumentProcessor:
             ocr_page_count=extraction.ocr_page_count,
             ocr_strategy=extraction.ocr_strategy,
             ghostscript_version=extraction.ghostscript_version,
+            detected_script=(
+                extraction.detected_script
+                if extraction.detected_script != "Unknown"
+                else quality.detected_script
+            ),
+            detected_language=(
+                extraction.detected_language
+                if extraction.detected_language != "Unknown"
+                else quality.detected_language
+            ),
+            ocr_plausibility=extraction.ocr_plausibility or quality.ocr_plausibility,
             character_count=len(text),
             word_count=quality.word_count,
             created_at=task.created_at,

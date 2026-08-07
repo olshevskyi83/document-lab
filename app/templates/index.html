@@ -23,7 +23,7 @@
     <h1>Upload</h1>
     <form action="/upload" method="post" enctype="multipart/form-data">
       <label>Document<input type="file" name="file" required></label>
-      <label>OCR language<select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select></label>
+      <label>OCR language<select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ ocr_labels[key] }}</option>{% endfor %}</select></label>
       <label>Document type<select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select></label>
       <label>Library catalog<select name="catalog"><option value="">Library root</option>{% for catalog in catalogs %}<option value="{{ catalog }}">{{ catalog }}</option>{% endfor %}</select></label>
       <button>Upload and queue</button>
@@ -33,7 +33,7 @@
     <h1>Library</h1>
     <ul class="tree">{{ render_tree(tree) }}</ul>
     <form action="/library/scan" method="post" class="inline">
-      <select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select>
+      <select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ ocr_labels[key] }}</option>{% endfor %}</select>
       <select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select>
       <button>Імпортувати нові файли з Library</button>
     </form>
