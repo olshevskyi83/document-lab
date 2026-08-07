@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% macro render_tree(node) %}
+  <li><code>{{ node.path or 'Library/' }}</code>
+  {% if node.children %}<ul>{% for child in node.children %}{{ render_tree(child) }}{% endfor %}</ul>{% endif %}</li>
+{% endmacro %}
+{% block content %}
+{% if message %}<p class="notice">{{ message }}</p>{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<section class="grid two">
+  <article>
+    <h1>Upload</h1>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <label>Document<input type="file" name="file" required></label>
+      <label>OCR language<select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select></label>
+      <label>Document type<select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select></label>
+      <label>Library catalog<select name="catalog"><option value="">Library root</option>{% for catalog in catalogs %}<option value="{{ catalog }}">{{ catalog }}</option>{% endfor %}</select></label>
+      <button>Upload and queue</button>
+    </form>
+  </article>
+  <article>
+    <h1>Library</h1>
+    <ul class="tree">{{ render_tree(tree) }}</ul>
+    <form action="/library/scan" method="post" class="inline">
+      <select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select>
+      <select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select>
+      <button>Імпортувати нові файли з Library</button>
+    </form>
+    <p class="muted">Використовуйте цю кнопку лише для документів, які ви вручну скопіювали в каталоги Library поза Document Lab.</p>
+    <details><summary>Manage catalogs</summary>
+      <form action="/library/catalogs" method="post" class="inline"><input name="path" placeholder="Biology/Mycology" required><button>Create</button></form>
+      <form action="/library/catalogs/rename" method="post" class="inline"><input name="path" placeholder="Existing/path" required><input name="new_name" placeholder="New name" required><button>Rename</button></form>
+      <form action="/library/catalogs/delete" method="post" class="inline"><input name="path" placeholder="Empty/catalog" required><button class="danger">Delete empty</button></form>
+    </details>
+  </article>
+</section>
+<section>
+  <h1>Tasks</h1>
+  <div class="table-wrap"><table>
+    <thead><tr><th>ID</th><th>Document</th><th>Format</th><th>Catalog</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead>
+    <tbody>{% for task in tasks %}<tr>
+      <td>{{ task.id }}</td><td><a href="/tasks/{{ task.id }}">{{ task.source_filename }}</a>{% if task.duplicate_of %}<small>duplicate of {{ task.duplicate_of }}</small>{% endif %}</td>
+      <td>{{ task.format }}</td><td>{{ task.catalog or '—' }}</td><td><span class="status {{ task.status }}">{{ task.status }}</span>{% if task.error %}<small class="error-text">{{ task.error }}</small>{% endif %}</td>
+      <td><progress value="{{ task.progress }}" max="100"></progress> {{ task.progress }}%</td>
+      <td class="actions">
+        {% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Approve</button></form>{% endif %}
+        {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry</button></form>{% endif %}
+        {% if task.status != 'processing' %}<form action="/tasks/{{ task.id }}/delete" method="post"><button class="danger">Delete</button></form>{% endif %}
+      </td>
+    </tr>{% else %}<tr><td colspan="7">No tasks yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<script>if ([...document.querySelectorAll('.status')].some(e => ['queued','processing'].includes(e.textContent.trim()))) setTimeout(() => location.reload(), 3000);</script>
+{% endblock %}

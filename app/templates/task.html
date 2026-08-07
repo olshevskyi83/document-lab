@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Task {{ task.id }} · Document Lab{% endblock %}
+{% block content %}
+<p><a href="/">← Dashboard</a></p>
+<h1>{{ task.source_filename }}</h1>
+<dl><dt>Status</dt><dd><span class="status {{ task.status }}">{{ task.status }}</span></dd><dt>SHA-256</dt><dd><code>{{ task.sha256 }}</code></dd><dt>Source</dt><dd><code>{{ task.source_path }}</code></dd></dl>
+<div class="actions">
+{% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Manual approve</button></form>{% endif %}
+{% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry failed task</button></form>{% endif %}
+</div>
+{% if task.error %}<pre class="error">{{ task.error }}</pre>{% endif %}
+<section>
+  <h2>Processing information</h2>
+  {% if metadata %}<dl class="processing-info">
+    <dt>Extraction method</dt><dd><code>{{ processing_method }}</code></dd>
+    <dt>OCR strategy</dt><dd><code>{{ metadata.get('ocr_strategy', 'none') }}</code>{% if metadata.get('ghostscript_version') %} (Ghostscript {{ metadata.get('ghostscript_version') }}){% endif %}</dd>
+    <dt>OCR used</dt><dd>{{ 'Yes' if metadata.ocr_used else 'No' }}</dd>
+    <dt>OCR languages</dt><dd>{{ metadata.ocr_languages | join(', ') if metadata.ocr_languages else ('Auto/default' if metadata.ocr_used else '—') }}</dd>
+    <dt>Document pages</dt><dd>{{ metadata.page_count if metadata.page_count is not none else 'Unknown' }}</dd>
+    <dt>Pages with extracted text</dt><dd>{{ metadata.get('text_page_count') if metadata.get('text_page_count') is not none else 'Unknown' }}</dd>
+    <dt>Pages OCRed</dt><dd>{{ metadata.get('ocr_page_count', 0) }}</dd>
+    <dt>Extraction coverage</dt><dd>{% if metadata.get('text_coverage') is not none %}{{ metadata.get('text_page_count') }}/{{ metadata.page_count }} pages{% else %}Unknown{% endif %}</dd>
+    <dt>Coverage percent</dt><dd>{% if metadata.get('text_coverage') is not none %}{{ '%.1f%%' | format(metadata.get('text_coverage') * 100) }}{% else %}Unknown{% endif %}</dd>
+    <dt>Character count</dt><dd>{{ metadata.character_count }}</dd>
+    <dt>Word count</dt><dd>{{ metadata.word_count }}</dd>
+    <dt>Quality</dt><dd>{{ report.quality.score if report else '—' }} / sufficient: {{ 'Yes' if report and report.quality.sufficient else 'No' }}</dd>
+    <dt>Partial scan</dt><dd>{{ 'Yes' if metadata.get('partially_scanned', false) else 'No' }}{% if metadata.get('initial_text_coverage') is not none %} (initial text coverage {{ '%.1f%%' | format(metadata.get('initial_text_coverage') * 100) }}){% endif %}</dd>
+  </dl>{% else %}<p class="muted">Processing information is not available yet.</p>{% endif %}
+  {% if metadata and metadata.get('text_coverage') is not none and metadata.get('text_coverage') < 1 %}<p class="error"><strong>Warning:</strong> extraction coverage is below 100%.</p>{% endif %}
+  {% if report and report.warnings %}<div class="warning-list"><strong>Warnings</strong><ul>{% for warning in report.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+</section>
+<section><div class="section-heading"><h2>Extracted text preview</h2><div class="actions">{% if text %}<a class="button-link" href="/tasks/{{ task.id }}/download-text">Download TXT</a>{% endif %}{% if metadata %}<a class="button-link" href="/tasks/{{ task.id }}/download-metadata">Download Metadata</a>{% endif %}{% if report %}<a class="button-link" href="/tasks/{{ task.id }}/download-report">Download Report</a>{% endif %}</div></div><pre class="text-preview">{{ text if text else 'Not available yet' }}</pre></section>
+<section class="grid two">
+  <details><summary>Raw metadata</summary><pre>{{ metadata | tojson(indent=2) if metadata else 'Not available yet' }}</pre></details>
+  <details><summary>Raw quality report</summary><pre>{{ report | tojson(indent=2) if report else 'Not available yet' }}</pre></details>
+</section>
+<section><h2>Future extension</h2><button disabled title="Provided later by Homelab Core">Add to Knowledge / Qdrant via Homelab Core</button><p class="muted">Document Lab does not connect to Qdrant directly.</p></section>
+{% endblock %}
