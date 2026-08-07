@@ -16,6 +16,7 @@ upload / Library scan
 → atomic output writes
 → preview
 → manual approval
+→ approved uploads copied into the selected Library catalog
 ```
 
 Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, Markdown, EPUB, and DOCX.
@@ -41,7 +42,7 @@ The host directory `/home/homelabuser/RemoteDrop` is mounted at `/remote` and sh
 └── Library/
 ```
 
-Missing directories are created at startup. Library categories are never hardcoded: all nested directories are discovered recursively. Uploaded originals are stored under `originals/` with collision-resistant names and are not deleted when a task is deleted. Library source files are not modified.
+Missing directories are created at startup. Library categories are never hardcoded: all nested directories are discovered recursively. Uploaded originals are stored under `originals/` with collision-resistant names and are not deleted when a task is deleted. An upload enters its selected Library catalog only after manual approval; failed, duplicate, deleted, and unapproved uploads do not. Sources discovered by a Library scan stay in place and are never copied again on approval.
 
 Completed extraction artifacts:
 
@@ -59,12 +60,10 @@ Run these exact commands from the repository checkout:
 
 ```bash
 cd /path/to/document-lab
-sudo mkdir -p /home/homelabuser/RemoteDrop/Documents/{incoming,processing,ready,failed,reports,originals,imports,Library}
-sudo chown -R 10001:10001 /home/homelabuser/RemoteDrop
+mkdir -p /home/homelabuser/RemoteDrop/Documents/{incoming,processing,ready,failed,reports,originals,imports,Library}
 mkdir -p data logs
-sudo chown -R 10001:10001 data logs
 docker network inspect ai-network >/dev/null 2>&1 || docker network create ai-network
-docker compose build --pull
+APP_UID=1000 APP_GID=1000 docker compose build --pull
 docker compose up -d
 ```
 
@@ -116,11 +115,11 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 2. Confirm absolute paths, `..`, traversal paths, and deletion of a non-empty catalog are rejected.
 3. Create a directory manually under `RemoteDrop/Documents/Library`, refresh, and confirm it appears.
 4. Upload TXT and Markdown files; confirm they pass through queued/processing/ready.
-5. Preview extracted text, metadata, and the quality report, then approve the task.
+5. Before approval, confirm an upload exists under `originals/` but not in its selected Library catalog. Preview it, approve it, then confirm it appears in Library.
 6. Upload the same bytes under another filename; confirm the task is clearly marked duplicate and is not processed.
 7. Upload different bytes with the same filename; confirm a distinct task is queued.
 8. Upload a PDF with a good text layer; confirm `extraction_method` is `pdf_text` and `ocr_used` is false.
-9. Upload a scanned PDF; confirm `extraction_method` is `pdf_ocr` and selected OCR languages are recorded.
+9. Upload a scanned PDF; confirm `extraction_method` is `pdf_ocr` and selected OCR languages are recorded. For a partially scanned PDF, confirm `pdf_partial_ocr`, page coverage metadata, and a partial OCR warning.
 10. Upload hidden-text and scanned DJVU samples; confirm `djvu_hidden_text` and `djvu_ocr` respectively, with explicit page markers for OCR.
 11. Upload EPUB and DOCX samples and review title/author extraction.
 12. Stop the container while a task is processing, start it again, and confirm the task safely returns to the queue.
@@ -136,6 +135,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 | `LOGS_ROOT` | `/app/logs` | Application logs |
 | `WORKER_POLL_SECONDS` | `1` | Queue polling interval |
 | `COMMAND_TIMEOUT_SECONDS` | `3600` | Extraction/OCR subprocess timeout |
+
+Docker build arguments and the Compose runtime user default to `APP_UID=1000` and `APP_GID=1000`. Override both only when the owning homelab account uses different IDs. Document Lab never recursively changes ownership of `/home/homelabuser/RemoteDrop`.
 
 ## Known MVP limitations
 

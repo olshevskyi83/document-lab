@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.db import Database
 from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
-from app.services.intake import enqueue_document, store_upload
+from app.services.intake import enqueue_document, place_approved_upload, store_upload
 from app.services.library import (
     create_catalog,
     delete_empty_catalog,
@@ -103,12 +103,8 @@ def upload_document(
             content_type=content_type,
             ocr_languages=ocr_languages,
             catalog=catalog,
+            source_filename=file.filename,
         )
-        if task.status != TaskStatus.DUPLICATE:
-            library_copy = catalog_path / Path(file.filename or "").name
-            if library_copy.exists():
-                library_copy = catalog_path / f"{task.sha256[:8]}-{library_copy.name}"
-            shutil.copy2(original, library_copy)
         return redirect(message=f"Task {task.id}: {task.status}")
     except Exception as exc:
         return redirect(error=str(exc))
@@ -179,11 +175,27 @@ def task_detail(request: Request, task_id: int):
 @app.post("/tasks/{task_id}/approve")
 def approve_task(task_id: int):
     task = database.get_task(task_id)
+    if task is None or task.status != TaskStatus.READY:
+        return redirect(error="Only ready tasks can be approved")
+    try:
+        library_destination = place_approved_upload(task, settings)
+    except Exception as exc:
+        return redirect(error=f"Could not add approved upload to Library: {exc}")
     if not database.approve(task_id):
         return redirect(error="Only ready tasks can be approved")
+    if library_destination:
+        relative_destination = library_destination.relative_to(settings.documents_root).as_posix()
+        database.update_task(task_id, relative_path=relative_destination)
+        if task.metadata_path and Path(task.metadata_path).is_file():
+            metadata = json.loads(Path(task.metadata_path).read_text(encoding="utf-8"))
+            metadata["relative_path"] = relative_destination
+            atomic_write_text(Path(task.metadata_path), json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     if task and task.report_path and Path(task.report_path).is_file():
         report = json.loads(Path(task.report_path).read_text(encoding="utf-8"))
         report["status"] = TaskStatus.COMPLETED
+        if library_destination:
+            report["library_destination"] = library_destination.relative_to(settings.documents_root).as_posix()
+            report["metadata"]["relative_path"] = library_destination.relative_to(settings.documents_root).as_posix()
         atomic_write_text(Path(task.report_path), json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     return redirect(message=f"Task {task_id} approved")
 

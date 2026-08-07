@@ -42,6 +42,11 @@ class DocumentMetadata(BaseModel):
     tags: list[str] = Field(default_factory=list)
     format: str
     page_count: int | None = None
+    initial_text_page_count: int | None = None
+    initial_text_coverage: float | None = None
+    text_page_count: int | None = None
+    text_coverage: float | None = None
+    partially_scanned: bool = False
     extraction_method: str
     ocr_used: bool = False
     ocr_languages: list[str] = Field(default_factory=list)
@@ -60,6 +65,8 @@ class QualityReport(BaseModel):
     printable_ratio: float
     pages_with_text: int | None = None
     page_count: int | None = None
+    text_coverage: float | None = None
+    partially_scanned: bool = False
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -67,6 +74,11 @@ class ExtractionResult(BaseModel):
     text: str
     method: str
     page_count: int | None = None
+    initial_text_page_count: int | None = None
+    initial_text_coverage: float | None = None
+    text_page_count: int | None = None
+    text_coverage: float | None = None
+    partially_scanned: bool = False
     ocr_used: bool = False
     ocr_languages: list[str] = Field(default_factory=list)
     title: str = ""

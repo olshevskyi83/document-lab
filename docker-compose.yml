@@ -1,8 +1,13 @@
 services:
   document-lab:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: "${APP_UID:-1000}"
+        APP_GID: "${APP_GID:-1000}"
     container_name: document-lab
     restart: unless-stopped
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     ports:
       - "3012:3012"
     environment:

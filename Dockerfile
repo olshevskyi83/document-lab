@@ -1,5 +1,8 @@
 FROM python:3.12-slim-bookworm
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -28,8 +31,9 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY app ./app
 
 RUN mkdir -p /app/data /app/logs /remote/Documents/Library \
-    && useradd --system --uid 10001 --home /app documentlab \
-    && chown -R documentlab:documentlab /app /remote
+    && groupadd --gid "${APP_GID}" documentlab \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --home-dir /app --no-create-home documentlab \
+    && chown -R "${APP_UID}:${APP_GID}" /app
 
 USER documentlab
 EXPOSE 3012

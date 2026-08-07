@@ -9,6 +9,7 @@ from app.db import Database
 from app.models import DocumentType, TaskRecord, TaskStatus
 from app.services.format_detection import detect_format
 from app.services.hash import sha256_file
+from app.services.library import safe_library_path
 from app.services.ocr import parse_ocr_languages
 
 
@@ -28,6 +29,7 @@ def enqueue_document(
     content_type: str = DocumentType.AUTO,
     ocr_languages: str = "auto",
     catalog: str | None = None,
+    source_filename: str | None = None,
 ) -> TaskRecord:
     if content_type not in set(DocumentType):
         raise ValueError("Unsupported document type")
@@ -44,7 +46,7 @@ def enqueue_document(
         document_id=document_id,
         sha256=sha256,
         source_path=str(path),
-        source_filename=path.name,
+        source_filename=Path(source_filename).name if source_filename else path.name,
         relative_path=relative_path,
         catalog=catalog if catalog is not None else catalog_for_path(path, settings.library_root),
         format=document_format,
@@ -68,3 +70,38 @@ def store_upload(source, filename: str, settings: Settings) -> Path:
         shutil.copyfileobj(source, target)
     temporary.replace(destination)
     return destination
+
+
+def place_approved_upload(task: TaskRecord, settings: Settings) -> Path | None:
+    source = Path(task.source_path).resolve()
+    library_root = settings.library_root.resolve()
+    if source == library_root or library_root in source.parents:
+        return None
+    originals_root = settings.originals_root.resolve()
+    if originals_root not in source.parents:
+        return None
+    catalog = safe_library_path(settings.library_root, task.catalog)
+    if not catalog.is_dir():
+        raise ValueError("Selected Library catalog no longer exists")
+    filename = Path(task.source_filename).name
+    candidate = catalog / filename
+    if candidate.exists() and sha256_file(candidate) == task.sha256:
+        return candidate
+    if candidate.exists():
+        stem, suffix = Path(filename).stem, Path(filename).suffix
+        candidate = catalog / f"{stem}-{task.sha256[:8]}{suffix}"
+        counter = 2
+        while candidate.exists():
+            if sha256_file(candidate) == task.sha256:
+                return candidate
+            candidate = catalog / f"{stem}-{task.sha256[:8]}-{counter}{suffix}"
+            counter += 1
+    temporary = catalog / f".{candidate.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        with source.open("rb") as input_stream, temporary.open("xb") as output_stream:
+            shutil.copyfileobj(input_stream, output_stream)
+        temporary.replace(candidate)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return candidate
