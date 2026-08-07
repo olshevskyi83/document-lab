@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Task {{ task.id }} · Document Lab{% endblock %}
+{% block content %}
+<p><a href="/">← Dashboard</a></p>
+<h1>{{ task.source_filename }}</h1>
+<dl><dt>Status</dt><dd><span class="status {{ task.status }}">{{ task.status }}</span></dd><dt>SHA-256</dt><dd><code>{{ task.sha256 }}</code></dd><dt>Source</dt><dd><code>{{ task.source_path }}</code></dd></dl>
+<div class="actions">
+{% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Manual approve</button></form>{% endif %}
+{% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry failed task</button></form>{% endif %}
+</div>
+{% if task.error %}<pre class="error">{{ task.error }}</pre>{% endif %}
+<section class="grid two">
+  <article><h2>Metadata</h2><pre>{{ metadata | tojson(indent=2) if metadata else 'Not available yet' }}</pre></article>
+  <article><h2>Quality report</h2><pre>{{ report | tojson(indent=2) if report else 'Not available yet' }}</pre></article>
+</section>
+<section><h2>Extracted text preview</h2><pre class="text-preview">{{ text[:100000] if text else 'Not available yet' }}</pre></section>
+<section><h2>Future extension</h2><button disabled title="Provided later by Homelab Core">Add to Knowledge / Qdrant via Homelab Core</button><p class="muted">Document Lab does not connect to Qdrant directly.</p></section>
+{% endblock %}
