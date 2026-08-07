@@ -10,5 +10,6 @@ charset-normalizer==3.4.2
 EbookLib==0.19
 python-docx==1.2.0
 ocrmypdf==16.10.4
+pikepdf==9.11.0
 pytest==8.4.1
 httpx==0.28.1

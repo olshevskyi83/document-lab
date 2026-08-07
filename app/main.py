@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.db import Database
 from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
+from app.services.dependencies import dependency_versions
 from app.services.intake import (
     enqueue_document,
     enqueue_new_library_documents,
@@ -38,6 +39,7 @@ database = Database(settings.database_path)
 worker = Worker(settings, database)
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+runtime_dependencies: dict[str, str] = {}
 
 
 @asynccontextmanager
@@ -49,6 +51,9 @@ async def lifespan(_: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         handlers=[logging.FileHandler(settings.logs_root / "document-lab.log"), logging.StreamHandler()],
     )
+    runtime_dependencies.clear()
+    runtime_dependencies.update(dependency_versions())
+    logging.getLogger(__name__).info("Dependency versions: %s", runtime_dependencies)
     worker.start()
     try:
         yield
@@ -66,8 +71,14 @@ def redirect(message: str = "", error: str = "") -> RedirectResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "pipeline_version": settings.pipeline_version}
+def health() -> dict[str, object]:
+    if not runtime_dependencies:
+        runtime_dependencies.update(dependency_versions())
+    return {
+        "status": "ok",
+        "pipeline_version": settings.pipeline_version,
+        "dependencies": runtime_dependencies,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

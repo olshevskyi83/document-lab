@@ -24,6 +24,7 @@ Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, M
 - PDF: `pdftotext` first; OCRmyPDF only when quality is insufficient; then `pdftotext` again.
 - Partial-PDF OCR detects Ghostscript automatically. Ghostscript 10.00.0–10.02.0, unavailable, or unparseable versions use a conservative force-OCR compatibility strategy instead of `--redo-ocr`.
 - Every OCRmyPDF strategy explicitly uses `--output-type pdf`; PDF/A generation is disabled because OCR PDFs are temporary inputs for `pdftotext`, not archival artifacts.
+- `pikepdf==9.11.0` is pinned for OCRmyPDF 16.10.4 compatibility. OCRmyPDF allows `pikepdf>=8.10.1` without an upper bound, but pikepdf 10 removed the deprecated `Pdf.check()` method still called by OCRmyPDF 16.10.4 after OCR. The 9.11.0 pin retains that API and provides reproducible Python 3.12 Linux wheels.
 - DJVU: `djvutxt`/`djvused` first; `ddjvu` plus Tesseract only when hidden text is insufficient.
 - OCR selections: auto, `ukr`, `rus`, `eng`, `deu`, `spa`, and useful two-language combinations.
 - Worker concurrency is intentionally one. HTTP requests never run OCR.
@@ -88,6 +89,8 @@ docker compose exec document-lab djvutxt --help
 docker compose exec document-lab ddjvu --help
 docker compose exec document-lab djvused --help
 ```
+
+The `/health` response reports the installed OCRmyPDF, pikepdf, Ghostscript, and Tesseract versions under `dependencies`.
 
 `tesseract --list-langs` should include `deu`, `eng`, `rus`, `spa`, and `ukr`.
 
