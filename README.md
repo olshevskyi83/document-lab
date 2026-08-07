@@ -21,6 +21,11 @@ upload / Library scan
 
 Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, Markdown, EPUB, and DOCX.
 
+### Upload versus Library import
+
+- **Upload** is the normal Document Lab workflow: the immutable original is stored outside Library, processed and previewed, and copied into the selected Library catalog only after manual approval. Pending, failed, duplicate, deleted, and unapproved uploads do not enter Library.
+- **Library import scan** is only for documents placed directly into `/remote/Documents/Library` outside Document Lab—for example through SMB, Finder, rsync, or the shell. It imports only new or changed SHA-256 content. Files already managed by Document Lab, including approved uploads now present in Library, are silently skipped and do not create another task.
+
 - PDF: `pdftotext` first; OCRmyPDF only when quality is insufficient; then `pdftotext` again.
 - Partial-PDF OCR detects Ghostscript automatically. Ghostscript 10.00.0–10.02.0, unavailable, or unparseable versions use a conservative force-OCR compatibility strategy instead of `--redo-ocr`.
 - Every OCRmyPDF strategy explicitly uses `--output-type pdf`; PDF/A generation is disabled because OCR PDFs are temporary inputs for `pdftotext`, not archival artifacts.

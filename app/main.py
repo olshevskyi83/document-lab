@@ -18,6 +18,7 @@ from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
 from app.services.dependencies import dependency_versions
 from app.services.intake import (
+    LibraryScanResult,
     enqueue_document,
     enqueue_new_library_documents,
     place_approved_upload,
@@ -68,6 +69,15 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 def redirect(message: str = "", error: str = "") -> RedirectResponse:
     query = f"?{urlencode({'message': message})}" if message else f"?{urlencode({'error': error})}" if error else ""
     return RedirectResponse(f"/{query}", status_code=303)
+
+
+def library_scan_message(result: LibraryScanResult) -> str:
+    if result.new > 0:
+        message = f"Імпортовано нових файлів: {result.new}"
+        return f"{message}. Помилок імпорту: {result.failed}" if result.failed else message
+    if result.failed == 0:
+        return "Нових файлів у Library не знайдено."
+    return f"Нових файлів не імпортовано. Помилок імпорту: {result.failed}"
 
 
 @app.get("/health")
@@ -135,9 +145,13 @@ def scan_library(ocr_languages: str = Form("auto"), content_type: str = Form("au
         content_type=content_type,
         ocr_languages=ocr_languages,
     )
-    return redirect(
-        message=f"Library scan: {result.new} new, {result.already_known} already known, {result.failed} failed"
+    logging.getLogger(__name__).info(
+        "Library import scan: new=%s skipped_known=%s failed=%s",
+        result.new,
+        result.already_known,
+        result.failed,
     )
+    return redirect(message=library_scan_message(result))
 
 
 @app.post("/library/catalogs")
