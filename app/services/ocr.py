@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from app.services.commands import (
     CommandError,
@@ -32,11 +33,16 @@ def parse_ocr_languages(value: str) -> list[str]:
     return OCR_LANGUAGE_OPTIONS[value]
 
 
-def ocr_image(image_path: Path, languages: list[str], timeout: int) -> str:
+def ocr_image(
+    image_path: Path,
+    languages: list[str],
+    timeout: int,
+    cancel_check: Callable[[], bool] | None = None,
+) -> str:
     arguments = ["tesseract", str(image_path), "stdout"]
     if languages:
         arguments.extend(["-l", "+".join(languages)])
-    result = run_command(arguments, timeout=timeout)
+    result = run_command(arguments, timeout=timeout, cancel_check=cancel_check)
     return result.stdout
 
 
@@ -75,9 +81,13 @@ def ghostscript_redo_affected(version: str | None) -> bool:
     return parsed is not None and (10, 0, 0) <= parsed <= (10, 2, 0)
 
 
-def detect_ghostscript_version(timeout: int) -> str | None:
+def detect_ghostscript_version(
+    timeout: int, cancel_check: Callable[[], bool] | None = None
+) -> str | None:
     try:
-        result = run_command(["gs", "--version"], timeout=timeout)
+        result = run_command(
+            ["gs", "--version"], timeout=timeout, cancel_check=cancel_check
+        )
     except CommandError:
         return None
     return result.stdout.strip() or None
@@ -122,14 +132,24 @@ def build_ocr_pdf_command(
 
 
 def ocr_pdf(
-    source: Path, target: Path, languages: list[str], timeout: int, *, redo: bool = False
+    source: Path,
+    target: Path,
+    languages: list[str],
+    timeout: int,
+    *,
+    redo: bool = False,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> OCRPDFStrategy:
-    version = detect_ghostscript_version(timeout)
+    version = (
+        detect_ghostscript_version(timeout, cancel_check)
+        if cancel_check
+        else detect_ghostscript_version(timeout)
+    )
     strategy = select_ocr_pdf_strategy(
         source, target, languages, redo=redo, ghostscript_version=version
     )
     try:
-        run_command(strategy.command, timeout=timeout)
+        run_command(strategy.command, timeout=timeout, cancel_check=cancel_check)
     except CommandTimeoutError as exc:
         raise OCRPDFTimeoutError(f"OCRmyPDF command timeout: {exc}") from exc
     except CommandExecutionError as exc:

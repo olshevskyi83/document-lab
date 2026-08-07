@@ -34,6 +34,14 @@ Supported formats: text PDF, scanned PDF, hidden-text DJVU, scanned DJVU, TXT, M
 - OCR selections: auto, `ukr`, `rus`, `eng`, `deu`, `spa`, and useful two-language combinations.
 - Worker concurrency is intentionally one. HTTP requests never run OCR.
 
+### Progress and cancellation
+
+The worker persists a numeric `progress`, a machine-readable `stage`, optional `stage_detail`, and `started_at`/`finished_at` timestamps. DJVU fallback reports every completed OCR page. OCRmyPDF runs as an indeterminate `pdf_ocr` stage because its output does not provide a stable page-progress interface; the UI shows the known document page count without inventing a time-based percentage.
+
+The dashboard polls `/api/tasks/status` every two seconds and updates only status badges, progress, stage details, timings, counters, and action buttons. Upload and catalog forms are never interrupted by a full-page refresh. SQLite task IDs remain internal route/debug identifiers; dashboard counters describe current non-duplicate task rows and do not depend on AUTOINCREMENT history.
+
+Queued tasks can be cancelled immediately. Processing tasks transition through `cancelling` to `cancelled`. External commands run in their own process session, so cancellation terminates OCRmyPDF/Tesseract/Ghostscript/ddjvu and their children as one process group. DJVU OCR also checks cancellation between pages. Cancelled work does not publish text, metadata, or reports; task-owned temporary/output files and uploaded originals are cleaned, while pre-existing Library sources are retained until the user explicitly deletes the cancelled document.
+
 ## Storage
 
 The host directory `/home/homelabuser/RemoteDrop` is mounted at `/remote` and should contain:
@@ -56,9 +64,9 @@ Missing directories are created at startup. Library categories are never hardcod
 
 The normal Delete action removes a document from Document Lab completely. After validating exact stored paths, regular-file type, managed-root containment, absence of symlinks, and SHA-256 identity for originals, it removes generated text, metadata, report, the Document Lab-owned upload original, and the managed Library copy when present. It never removes catalog directories or searches by filename.
 
-Deletion is refused while a task is processing. If a managed source or Library file cannot be removed safely, the database task is kept and the UI reports the error. Missing optional generated artifacts do not prevent cleanup.
+Deletion is refused while a task is processing or cancelling; cancel it first. If a managed source or Library file cannot be removed safely, the database task is kept and the UI reports the error. Missing optional generated artifacts do not prevent cleanup.
 
-On startup, SQLite is migrated in place with a nullable `library_path` column when needed. Existing tasks remain readable; Document Lab backfills this field only when an exact existing Library file can be validated against the task SHA-256.
+On startup, SQLite is migrated in place with nullable `library_path`, `stage_detail`, `started_at`, and `finished_at` columns plus a defaulted `stage` column when needed. Existing tasks remain readable; Document Lab backfills `library_path` only when an exact existing Library file can be validated against the task SHA-256.
 
 Completed extraction artifacts:
 
@@ -142,9 +150,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 9. Upload a scanned PDF; confirm `extraction_method` is `pdf_ocr` and selected OCR languages are recorded. For a partially scanned PDF, confirm `pdf_partial_ocr`, page coverage metadata, and a partial OCR warning.
 10. Upload hidden-text and scanned DJVU samples; confirm `djvu_hidden_text` and `djvu_ocr` respectively, with explicit page markers for OCR.
 11. Upload EPUB and DOCX samples and review title/author extraction.
-12. Stop the container while a task is processing, start it again, and confirm the task safely returns to the queue.
-13. Retry a failed task. Delete a non-processing task and confirm its managed original, Library copy, and generated artifacts are removed while catalog directories remain intact.
-14. Confirm no Qdrant, embedding, LLM, or external AI request is made.
+12. Cancel queued PDF/DJVU uploads and confirm they never start. Cancel active OCR, confirm `cancelling` becomes `cancelled`, and verify no OCR child process or partial output remains.
+13. Stop the container while a task is processing, start it again, and confirm the task safely returns to the queue.
+14. Retry a failed task. Delete a non-processing task and confirm its managed original, Library copy, and generated artifacts are removed while catalog directories remain intact.
+15. Confirm no Qdrant, embedding, LLM, or external AI request is made.
 
 ## Configuration
 

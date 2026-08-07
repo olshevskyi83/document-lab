@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     ocr_languages TEXT NOT NULL DEFAULT 'auto',
     status TEXT NOT NULL,
     progress INTEGER NOT NULL DEFAULT 0,
+    stage TEXT NOT NULL DEFAULT 'queued',
+    stage_detail TEXT,
     error TEXT,
     duplicate_of TEXT,
     text_path TEXT,
@@ -29,7 +31,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     library_path TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    approved_at TEXT
+    approved_at TEXT,
+    started_at TEXT,
+    finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_sha256 ON tasks(sha256);
@@ -53,11 +57,25 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
-            if "library_path" not in columns:
-                connection.execute("ALTER TABLE tasks ADD COLUMN library_path TEXT")
+            migrations = {
+                "library_path": "ALTER TABLE tasks ADD COLUMN library_path TEXT",
+                "stage": "ALTER TABLE tasks ADD COLUMN stage TEXT NOT NULL DEFAULT 'queued'",
+                "stage_detail": "ALTER TABLE tasks ADD COLUMN stage_detail TEXT",
+                "started_at": "ALTER TABLE tasks ADD COLUMN started_at TEXT",
+                "finished_at": "ALTER TABLE tasks ADD COLUMN finished_at TEXT",
+            }
+            for column, statement in migrations.items():
+                if column not in columns:
+                    connection.execute(statement)
             connection.execute(
-                "UPDATE tasks SET status=?, progress=0, error=? WHERE status=?",
+                "UPDATE tasks SET status=?, progress=0, stage='queued', stage_detail=NULL, "
+                "started_at=NULL, error=? WHERE status=?",
                 (TaskStatus.QUEUED, "Recovered after application restart", TaskStatus.PROCESSING),
+            )
+            connection.execute(
+                "UPDATE tasks SET status=?, stage='cancelled', stage_detail=NULL, "
+                "finished_at=? WHERE status=?",
+                (TaskStatus.CANCELLED, utc_now(), TaskStatus.CANCELLING),
             )
 
     def find_canonical_by_hash(self, sha256: str) -> TaskRecord | None:
@@ -91,10 +109,12 @@ class Database:
 
     def create_task(self, **values: object) -> TaskRecord:
         now = utc_now()
+        values.setdefault("stage", "queued")
+        values.setdefault("stage_detail", None)
         columns = (
             "document_id", "sha256", "source_path", "source_filename", "relative_path",
-            "catalog", "format", "content_type", "ocr_languages", "status", "progress",
-            "duplicate_of", "library_path", "created_at", "updated_at",
+            "catalog", "format", "content_type", "ocr_languages", "status", "progress", "stage",
+            "stage_detail", "duplicate_of", "library_path", "created_at", "updated_at",
         )
         params = tuple(values.get(column) for column in columns[:-2]) + (now, now)
         with self._lock, self.connect() as connection:
@@ -108,6 +128,13 @@ class Database:
     def list_tasks(self, limit: int = 200) -> list[TaskRecord]:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM tasks ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [TaskRecord.from_row(row) for row in rows]
+
+    def list_tasks_by_status(self, status: str) -> list[TaskRecord]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE status=? ORDER BY id", (status,)
+            ).fetchall()
         return [TaskRecord.from_row(row) for row in rows]
 
     def list_tasks_missing_library_path(self) -> list[TaskRecord]:
@@ -131,9 +158,11 @@ class Database:
             if row is None:
                 connection.commit()
                 return None
+            now = utc_now()
             connection.execute(
-                "UPDATE tasks SET status=?, progress=5, error=NULL, updated_at=? WHERE id=?",
-                (TaskStatus.PROCESSING, utc_now(), row["id"]),
+                "UPDATE tasks SET status=?, progress=5, stage='preparing', stage_detail=NULL, "
+                "started_at=?, finished_at=NULL, error=NULL, updated_at=? WHERE id=?",
+                (TaskStatus.PROCESSING, now, now, row["id"]),
             )
             connection.commit()
         return self.get_task(row["id"])
@@ -148,10 +177,21 @@ class Database:
                 f"UPDATE tasks SET {assignments} WHERE id=?", tuple(values.values()) + (task_id,)
             )
 
+    def finish_processing(self, task_id: int, **values: object) -> bool:
+        values["updated_at"] = utc_now()
+        assignments = ",".join(f"{key}=?" for key in values)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE tasks SET {assignments} WHERE id=? AND status=?",
+                tuple(values.values()) + (task_id, TaskStatus.PROCESSING),
+            )
+        return cursor.rowcount == 1
+
     def retry(self, task_id: int) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
-                "UPDATE tasks SET status=?, progress=0, error=NULL, updated_at=? "
+                "UPDATE tasks SET status=?, progress=0, stage='queued', stage_detail=NULL, "
+                "started_at=NULL, finished_at=NULL, error=NULL, updated_at=? "
                 "WHERE id=? AND status=?",
                 (TaskStatus.QUEUED, utc_now(), task_id, TaskStatus.FAILED),
             )
@@ -167,9 +207,58 @@ class Database:
             )
         return cursor.rowcount == 1
 
+    def request_cancellation(self, task_id: int) -> str | None:
+        now = utc_now()
+        with self._lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT status FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                connection.commit()
+                return None
+            if row["status"] == TaskStatus.QUEUED:
+                status = TaskStatus.CANCELLED
+                connection.execute(
+                    "UPDATE tasks SET status=?, stage='cancelled', stage_detail=NULL, "
+                    "finished_at=?, updated_at=? WHERE id=? AND status=?",
+                    (status, now, now, task_id, TaskStatus.QUEUED),
+                )
+            elif row["status"] == TaskStatus.PROCESSING:
+                status = TaskStatus.CANCELLING
+                connection.execute(
+                    "UPDATE tasks SET status=?, stage='cancelling', "
+                    "stage_detail='Зупинка обробки…', updated_at=? WHERE id=? AND status=?",
+                    (status, now, task_id, TaskStatus.PROCESSING),
+                )
+            else:
+                status = None
+            connection.commit()
+        return status
+
+    def is_cancellation_requested(self, task_id: int) -> bool:
+        with self.connect() as connection:
+            row = connection.execute("SELECT status FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return bool(row and row["status"] in (TaskStatus.CANCELLING, TaskStatus.CANCELLED))
+
+    def task_counts(self) -> dict[str, int]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM tasks WHERE status!=? GROUP BY status",
+                (TaskStatus.DUPLICATE,),
+            ).fetchall()
+        counts = {row["status"]: row["count"] for row in rows}
+        return {
+            "documents": sum(counts.values()),
+            "processing": counts.get(TaskStatus.PROCESSING, 0)
+            + counts.get(TaskStatus.CANCELLING, 0),
+            "waiting": counts.get(TaskStatus.QUEUED, 0),
+            "ready": counts.get(TaskStatus.READY, 0),
+            "failed": counts.get(TaskStatus.FAILED, 0),
+        }
+
     def delete_task_record(self, task_id: int) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM tasks WHERE id=? AND status!=?", (task_id, TaskStatus.PROCESSING)
+                "DELETE FROM tasks WHERE id=? AND status NOT IN (?, ?)",
+                (task_id, TaskStatus.PROCESSING, TaskStatus.CANCELLING),
             )
         return cursor.rowcount == 1

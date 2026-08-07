@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,7 +94,7 @@ def delete_managed_document(task_id: int, settings: Settings, database: Database
     task = database.get_task(task_id)
     if task is None:
         raise DeletionError("Task not found")
-    if task.status == TaskStatus.PROCESSING:
+    if task.status in (TaskStatus.PROCESSING, TaskStatus.CANCELLING):
         raise DeletionError("A task cannot be deleted while it is processing")
 
     validated: list[tuple[ManagedFile, Path]] = []
@@ -121,6 +122,52 @@ def delete_managed_document(task_id: int, settings: Settings, database: Database
 
     if not database.delete_task_record(task_id):
         raise DeletionError("Task record could not be deleted")
+
+
+def cleanup_cancelled_task(task: TaskRecord, settings: Settings) -> None:
+    """Remove task-owned temporary/output files without touching Library content."""
+    targets: list[ManagedFile] = []
+    source = Path(task.source_path)
+    originals_root = settings.originals_root.absolute()
+    if source.is_absolute() and _is_within(Path(os.path.abspath(source)), originals_root):
+        targets.append(ManagedFile(source, settings.originals_root, "uploaded original", True))
+    if task.text_path:
+        targets.append(ManagedFile(Path(task.text_path), settings.ready_root, "extracted text"))
+    if task.metadata_path:
+        targets.append(ManagedFile(Path(task.metadata_path), settings.ready_root, "metadata"))
+    if task.report_path:
+        targets.append(ManagedFile(Path(task.report_path), settings.reports_root, "report"))
+
+    for target in targets:
+        path = _validate_managed_file(target, task.sha256)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise DeletionError(f"Could not clean up {target.label} at {path}: {exc}") from exc
+
+    for root in (settings.processing_root, settings.ready_root):
+        directory = root / task.document_id
+        resolved_root = root.resolve()
+        resolved_directory = directory.resolve(strict=False)
+        if (
+            directory.is_symlink()
+            or not task.document_id.startswith("doc-")
+            or not _is_within(resolved_directory, resolved_root)
+        ):
+            raise DeletionError("Refusing to clean an unsafe task output directory")
+        if resolved_directory.is_dir():
+            try:
+                shutil.rmtree(resolved_directory)
+            except OSError as exc:
+                raise DeletionError(f"Could not clean task directory {resolved_directory}: {exc}") from exc
+
+    predictable_report = settings.reports_root / f"{task.document_id}.json"
+    report_target = ManagedFile(predictable_report, settings.reports_root, "report")
+    validated_report = _validate_managed_file(report_target, task.sha256)
+    try:
+        validated_report.unlink(missing_ok=True)
+    except OSError as exc:
+        raise DeletionError(f"Could not clean report at {validated_report}: {exc}") from exc
 
 
 def backfill_managed_library_paths(settings: Settings, database: Database) -> None:

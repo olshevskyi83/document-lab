@@ -2,33 +2,60 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from app.models import ExtractionResult
-from app.services.commands import run_command
+from app.services.commands import CommandCancelledError, run_command
 from app.services.ocr import ocr_image
 from app.services.quality import analyze_page_coverage, count_page_markers, evaluate_text_quality
 
 
-def djvu_page_count(path: Path, timeout: int) -> int | None:
-    result = run_command(["djvused", str(path), "-e", "n"], timeout=timeout)
+ProgressCallback = Callable[[str, str | None, int | None], None]
+
+
+def djvu_page_count(
+    path: Path, timeout: int, cancel_check: Callable[[], bool] | None = None
+) -> int | None:
+    result = run_command(
+        ["djvused", str(path), "-e", "n"], timeout=timeout, cancel_check=cancel_check
+    )
     value = result.stdout.strip()
     return int(value) if value.isdigit() else None
 
 
-def extract_hidden_text(path: Path, page_count: int | None, timeout: int) -> str:
+def extract_hidden_text(
+    path: Path,
+    page_count: int | None,
+    timeout: int,
+    cancel_check: Callable[[], bool] | None = None,
+) -> str:
     if not page_count:
-        result = run_command(["djvutxt", str(path)], timeout=timeout)
+        result = run_command(["djvutxt", str(path)], timeout=timeout, cancel_check=cancel_check)
         return result.stdout
     pages: list[str] = []
     for number in range(1, page_count + 1):
-        result = run_command(["djvutxt", f"--page={number}", str(path)], timeout=timeout)
+        result = run_command(
+            ["djvutxt", f"--page={number}", str(path)],
+            timeout=timeout,
+            cancel_check=cancel_check,
+        )
         pages.append(f"--- PAGE {number} ---\n{result.stdout.strip()}")
     return "\n\n".join(pages)
 
 
-def process_djvu(path: Path, languages: list[str], timeout: int) -> ExtractionResult:
-    page_count = djvu_page_count(path, timeout)
-    hidden = extract_hidden_text(path, page_count, timeout)
+def process_djvu(
+    path: Path,
+    languages: list[str],
+    timeout: int,
+    progress_callback: ProgressCallback | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> ExtractionResult:
+    if progress_callback:
+        progress_callback("analyzing", "Аналіз DJVU", 10)
+    page_count = djvu_page_count(path, timeout, cancel_check)
+    if progress_callback:
+        progress_callback("djvu_hidden_text", "Витягування прихованого тексту", 20)
+    hidden = extract_hidden_text(path, page_count, timeout, cancel_check)
     quality = evaluate_text_quality(hidden, page_count)
     hidden_coverage = analyze_page_coverage(hidden, page_count)
     hidden_markers = count_page_markers(hidden)
@@ -52,12 +79,27 @@ def process_djvu(path: Path, languages: list[str], timeout: int) -> ExtractionRe
     pages: list[str] = []
     with tempfile.TemporaryDirectory(prefix="document-lab-djvu-") as temporary:
         pattern = Path(temporary) / "page-%06d.tif"
-        run_command(["ddjvu", "-format=tiff", "-eachpage", str(path), str(pattern)], timeout=timeout)
+        if progress_callback:
+            progress_callback("rendering", "Рендеринг сторінок", 25)
+        run_command(
+            ["ddjvu", "-format=tiff", "-eachpage", str(path), str(pattern)],
+            timeout=timeout,
+            cancel_check=cancel_check,
+        )
         images = sorted(Path(temporary).glob("page-*.tif"))
         if not images:
             raise RuntimeError("ddjvu produced no page images")
         for number, image in enumerate(images, 1):
-            pages.append(f"--- PAGE {number} ---\n{ocr_image(image, languages, timeout).strip()}")
+            if cancel_check and cancel_check():
+                raise CommandCancelledError("DJVU OCR cancelled")
+            pages.append(
+                f"--- PAGE {number} ---\n"
+                f"{ocr_image(image, languages, timeout, cancel_check).strip()}"
+            )
+            if progress_callback:
+                total = page_count or len(images)
+                progress = 25 + int(50 * number / total)
+                progress_callback("djvu_ocr", f"Сторінка {number} з {total}", progress)
     text = "\n\n".join(pages)
     final_page_count = page_count or len(pages)
     final_coverage = analyze_page_coverage(text, final_page_count)

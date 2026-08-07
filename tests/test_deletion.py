@@ -181,7 +181,7 @@ def test_initialize_migrates_existing_database_with_library_path(tmp_path: Path)
 
     with database.connect() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
-    assert "library_path" in columns
+    assert {"library_path", "stage", "stage_detail", "started_at", "finished_at"} <= columns
 
 
 def test_processing_task_cannot_be_deleted(tmp_path: Path):

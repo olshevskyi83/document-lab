@@ -3,11 +3,12 @@
 {% block content %}
 <p><a href="/">← Dashboard</a></p>
 <h1>{{ task.source_filename }}</h1>
-<dl><dt>Status</dt><dd><span class="status {{ task.status }}">{{ task.status }}</span></dd><dt>SHA-256</dt><dd><code>{{ task.sha256 }}</code></dd><dt>Source</dt><dd><code>{{ task.source_path }}</code></dd></dl>
+<dl><dt>Status</dt><dd><span class="status {{ task.status }}">{{ task.status }}</span></dd><dt>Internal task ID</dt><dd>{{ task.id }}</dd><dt>Stage</dt><dd>{{ task.stage }}{% if task.stage_detail %} — {{ task.stage_detail }}{% endif %}</dd><dt>SHA-256</dt><dd><code>{{ task.sha256 }}</code></dd><dt>Source</dt><dd><code>{{ task.source_path }}</code></dd></dl>
 <div class="actions">
+{% if task.status in ['queued', 'processing'] %}<form action="/tasks/{{ task.id }}/cancel" method="post"><button class="danger">Cancel</button></form>{% endif %}
 {% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Manual approve</button></form>{% endif %}
 {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry failed task</button></form>{% endif %}
-{% if task.status != 'processing' %}
+{% if task.status in ['ready', 'completed', 'failed', 'cancelled', 'duplicate'] %}
   {% if task.library_path %}
   <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Файл буде фізично видалено з Library разом із результатами обробки. Продовжити?')"><button class="danger">Видалити файл</button></form>
   {% else %}

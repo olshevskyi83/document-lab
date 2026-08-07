@@ -3,6 +3,18 @@
   <li><code>{{ node.path or 'Library/' }}</code>
   {% if node.children %}<ul>{% for child in node.children %}{{ render_tree(child) }}{% endfor %}</ul>{% endif %}</li>
 {% endmacro %}
+{% macro task_actions(task) %}
+  {% if task.status in ['queued', 'processing'] %}<form action="/tasks/{{ task.id }}/cancel" method="post"><button class="danger">Cancel</button></form>{% endif %}
+  {% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Approve</button></form>{% endif %}
+  {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry</button></form>{% endif %}
+  {% if task.status in ['ready', 'completed', 'failed', 'cancelled', 'duplicate'] %}
+    {% if task.library_path %}
+    <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Файл буде фізично видалено з Library разом із результатами обробки. Продовжити?')"><button class="danger">Видалити файл</button></form>
+    {% else %}
+    <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Завантажений файл і результати обробки буде видалено. Продовжити?')"><button class="danger">Видалити</button></form>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
 {% block content %}
 {% if message %}<p class="notice">{{ message }}</p>{% endif %}
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -34,26 +46,23 @@
   </article>
 </section>
 <section>
-  <h1>Tasks</h1>
+  <h1>Documents</h1>
+  <div class="counters">
+    <span>Documents: <strong id="count-documents">{{ counts.documents }}</strong></span>
+    <span>Processing: <strong id="count-processing">{{ counts.processing }}</strong></span>
+    <span>Waiting: <strong id="count-waiting">{{ counts.waiting }}</strong></span>
+    <span>Ready for approval: <strong id="count-ready">{{ counts.ready }}</strong></span>
+    <span>Failed: <strong id="count-failed">{{ counts.failed }}</strong></span>
+  </div>
   <div class="table-wrap"><table>
-    <thead><tr><th>ID</th><th>Document</th><th>Format</th><th>Catalog</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead>
-    <tbody>{% for task in tasks %}<tr>
-      <td>{{ task.id }}</td><td><a href="/tasks/{{ task.id }}">{{ task.source_filename }}</a>{% if task.duplicate_of %}<small>duplicate of {{ task.duplicate_of }}</small>{% endif %}</td>
+    <thead><tr><th>Document</th><th>Format</th><th>Catalog</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead>
+    <tbody>{% for task in tasks %}<tr data-task-id="{{ task.id }}" data-library-managed="{{ 'true' if task.library_path else 'false' }}"{% if task.status in ['processing', 'cancelling'] %} class="active-task"{% endif %}>
+      <td><a href="/tasks/{{ task.id }}">{{ task.source_filename }}</a>{% if task.duplicate_of %}<small>duplicate of {{ task.duplicate_of }}</small>{% endif %}</td>
       <td>{{ task.format }}</td><td>{{ task.catalog or '—' }}</td><td><span class="status {{ task.status }}">{{ task.status }}</span>{% if task.error %}<small class="error-text">{{ task.error }}</small>{% endif %}</td>
-      <td><progress value="{{ task.progress }}" max="100"></progress> {{ task.progress }}%</td>
-      <td class="actions">
-        {% if task.status == 'ready' %}<form action="/tasks/{{ task.id }}/approve" method="post"><button>Approve</button></form>{% endif %}
-        {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry</button></form>{% endif %}
-        {% if task.status != 'processing' %}
-          {% if task.library_path %}
-          <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Файл буде фізично видалено з Library разом із результатами обробки. Продовжити?')"><button class="danger">Видалити файл</button></form>
-          {% else %}
-          <form action="/tasks/{{ task.id }}/delete" method="post" onsubmit="return confirm('Завантажений файл і результати обробки буде видалено. Продовжити?')"><button class="danger">Видалити</button></form>
-          {% endif %}
-        {% endif %}
-      </td>
-    </tr>{% else %}<tr><td colspan="7">No tasks yet.</td></tr>{% endfor %}</tbody>
+      <td><div class="stage">{{ task.stage }}</div><small class="stage-detail">{{ task.stage_detail or '' }}</small><progress {% if task.stage != 'pdf_ocr' %}value="{{ task.progress }}"{% endif %} max="100"></progress> <span class="progress-value">{% if task.stage != 'pdf_ocr' %}{{ task.progress }}%{% else %}Обробка триває…{% endif %}</span><small class="duration" data-started="{{ task.started_at or '' }}" data-finished="{{ task.finished_at or '' }}"></small></td>
+      <td class="actions">{{ task_actions(task) }}</td>
+    </tr>{% else %}<tr><td colspan="6">No tasks yet.</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
-<script>if ([...document.querySelectorAll('.status')].some(e => ['queued','processing'].includes(e.textContent.trim()))) setTimeout(() => location.reload(), 3000);</script>
+<script src="/static/tasks.js"></script>
 {% endblock %}

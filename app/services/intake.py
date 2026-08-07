@@ -63,6 +63,8 @@ def enqueue_document(
         ocr_languages=ocr_languages,
         progress=100 if canonical else 0,
         status=TaskStatus.DUPLICATE if canonical else TaskStatus.QUEUED,
+        stage="duplicate" if canonical else "queued",
+        stage_detail=None,
         duplicate_of=canonical.document_id if canonical else None,
         library_path=library_path,
     )

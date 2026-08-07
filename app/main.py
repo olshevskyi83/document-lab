@@ -16,7 +16,12 @@ from app.db import Database
 from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
 from app.services.dependencies import dependency_versions
-from app.services.deletion import DeletionError, backfill_managed_library_paths, delete_managed_document
+from app.services.deletion import (
+    DeletionError,
+    backfill_managed_library_paths,
+    cleanup_cancelled_task,
+    delete_managed_document,
+)
 from app.services.intake import (
     LibraryScanResult,
     enqueue_document,
@@ -53,6 +58,14 @@ async def lifespan(_: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         handlers=[logging.FileHandler(settings.logs_root / "document-lab.log"), logging.StreamHandler()],
     )
+    for task in database.list_tasks_by_status(TaskStatus.CANCELLED):
+        try:
+            cleanup_cancelled_task(task, settings)
+            database.update_task(task.id, text_path=None, metadata_path=None, report_path=None)
+        except DeletionError as exc:
+            logging.getLogger(__name__).warning(
+                "Recovered cancellation cleanup failed for task %s: %s", task.id, exc
+            )
     runtime_dependencies.clear()
     runtime_dependencies.update(dependency_versions())
     logging.getLogger(__name__).info("Dependency versions: %s", runtime_dependencies)
@@ -99,6 +112,7 @@ def dashboard(request: Request):
         "index.html",
         {
             "tasks": database.list_tasks(),
+            "counts": database.task_counts(),
             "catalogs": discover_catalogs(settings.library_root),
             "tree": library_tree(settings.library_root),
             "ocr_options": OCR_LANGUAGE_OPTIONS,
@@ -108,6 +122,28 @@ def dashboard(request: Request):
             "error": request.query_params.get("error", ""),
         },
     )
+
+
+@app.get("/api/tasks/status")
+def task_statuses() -> dict[str, object]:
+    tasks = database.list_tasks()
+    return {
+        "counts": database.task_counts(),
+        "tasks": [
+            {
+                "id": task.id,
+                "status": task.status,
+                "progress": task.progress,
+                "stage": task.stage,
+                "stage_detail": task.stage_detail,
+                "updated_at": task.updated_at,
+                "started_at": task.started_at,
+                "finished_at": task.finished_at,
+                "library_managed": bool(task.library_path),
+            }
+            for task in tasks
+        ],
+    }
 
 
 @app.post("/upload")
@@ -131,7 +167,7 @@ def upload_document(
             catalog=catalog,
             source_filename=file.filename,
         )
-        return redirect(message=f"Task {task.id}: {task.status}")
+        return redirect(message=f"{task.source_filename}: {task.status}")
     except Exception as exc:
         return redirect(error=str(exc))
     finally:
@@ -272,14 +308,31 @@ def approve_task(task_id: int):
             report["library_destination"] = library_destination.relative_to(settings.documents_root).as_posix()
             report["metadata"]["relative_path"] = library_destination.relative_to(settings.documents_root).as_posix()
         atomic_write_text(Path(task.report_path), json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    return redirect(message=f"Task {task_id} approved")
+    return redirect(message="Document approved")
 
 
 @app.post("/tasks/{task_id}/retry")
 def retry_task(task_id: int):
     if not database.retry(task_id):
         return redirect(error="Only failed tasks can be retried")
-    return redirect(message=f"Task {task_id} queued again")
+    return redirect(message="Document queued again")
+
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: int):
+    new_status = database.request_cancellation(task_id)
+    if new_status is None:
+        return redirect(error="Only queued or processing tasks can be cancelled")
+    if new_status == TaskStatus.CANCELLED:
+        task = database.get_task(task_id)
+        if task:
+            try:
+                cleanup_cancelled_task(task, settings)
+            except DeletionError as exc:
+                database.update_task(task_id, error=f"Cancellation cleanup warning: {exc}")
+                return redirect(error=f"Task cancelled, but cleanup needs attention: {exc}")
+        return redirect(message="Task cancelled")
+    return redirect(message="Cancellation requested")
 
 
 @app.post("/tasks/{task_id}/delete")
@@ -288,4 +341,4 @@ def delete_task(task_id: int):
         delete_managed_document(task_id, settings, database)
     except DeletionError as exc:
         return redirect(error=str(exc))
-    return redirect(message=f"Task {task_id} and managed files deleted")
+    return redirect(message="Document and managed files deleted")

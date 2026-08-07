@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from app.models import ExtractionResult
 from app.services.commands import run_command
@@ -9,8 +10,13 @@ from app.services.ocr import ocr_pdf
 from app.services.quality import analyze_page_coverage, count_page_markers, evaluate_text_quality
 
 
-def pdf_info(path: Path, timeout: int) -> dict[str, str]:
-    result = run_command(["pdfinfo", str(path)], timeout=timeout)
+ProgressCallback = Callable[[str, str | None, int | None], None]
+
+
+def pdf_info(
+    path: Path, timeout: int, cancel_check: Callable[[], bool] | None = None
+) -> dict[str, str]:
+    result = run_command(["pdfinfo", str(path)], timeout=timeout, cancel_check=cancel_check)
     info: dict[str, str] = {}
     for line in result.stdout.splitlines():
         if ":" in line:
@@ -19,8 +25,17 @@ def pdf_info(path: Path, timeout: int) -> dict[str, str]:
     return info
 
 
-def extract_pdf_text(path: Path, timeout: int, page_count: int | None = None) -> str:
-    result = run_command(["pdftotext", "-layout", str(path), "-"], timeout=timeout)
+def extract_pdf_text(
+    path: Path,
+    timeout: int,
+    page_count: int | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> str:
+    result = run_command(
+        ["pdftotext", "-layout", str(path), "-"],
+        timeout=timeout,
+        cancel_check=cancel_check,
+    )
     pages = result.stdout.split("\f")
     if page_count:
         pages = (pages + [""] * page_count)[:page_count]
@@ -32,11 +47,21 @@ def extract_pdf_text(path: Path, timeout: int, page_count: int | None = None) ->
     )
 
 
-def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionResult:
-    info = pdf_info(path, timeout)
+def process_pdf(
+    path: Path,
+    languages: list[str],
+    timeout: int,
+    progress_callback: ProgressCallback | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> ExtractionResult:
+    if progress_callback:
+        progress_callback("analyzing", "Аналіз PDF", 10)
+    info = pdf_info(path, timeout, cancel_check)
     page_value = info.get("pages", "").strip()
     page_count = int(page_value) if page_value.isdigit() and int(page_value) > 0 else None
-    initial_text = extract_pdf_text(path, timeout, page_count)
+    if progress_callback:
+        progress_callback("pdf_text", "Витягування текстового шару", 20)
+    initial_text = extract_pdf_text(path, timeout, page_count, cancel_check)
     initial_quality = evaluate_text_quality(initial_text, page_count)
     initial_coverage = analyze_page_coverage(initial_text, page_count)
     warnings = list(initial_quality.warnings)
@@ -63,8 +88,20 @@ def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionRes
         )
     with tempfile.TemporaryDirectory(prefix="document-lab-pdf-") as temporary:
         ocr_path = Path(temporary) / "ocr.pdf"
-        strategy = ocr_pdf(path, ocr_path, languages, timeout, redo=partial_fallback)
-        text = extract_pdf_text(ocr_path, timeout, page_count)
+        if progress_callback:
+            page_detail = f"{page_count} сторінок" if page_count else "Кількість сторінок невідома"
+            progress_callback("pdf_ocr", page_detail, None)
+        strategy = ocr_pdf(
+            path,
+            ocr_path,
+            languages,
+            timeout,
+            redo=partial_fallback,
+            cancel_check=cancel_check,
+        )
+        if progress_callback:
+            progress_callback("postprocessing", "Витягування OCR-тексту", 80)
+        text = extract_pdf_text(ocr_path, timeout, page_count, cancel_check)
     final_coverage = analyze_page_coverage(text, page_count)
     marker_count = count_page_markers(text)
     if page_count and marker_count != page_count:

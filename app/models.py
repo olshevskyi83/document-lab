@@ -18,6 +18,8 @@ class TaskStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     DUPLICATE = "duplicate"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
 
 
 class DocumentType(StrEnum):
@@ -115,6 +117,8 @@ class TaskRecord(BaseModel):
     ocr_languages: str
     status: str
     progress: int
+    stage: str = "queued"
+    stage_detail: str | None = None
     error: str | None = None
     duplicate_of: str | None = None
     text_path: str | None = None
@@ -124,6 +128,8 @@ class TaskRecord(BaseModel):
     created_at: str
     updated_at: str
     approved_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
     @classmethod
     def from_row(cls, row: Any) -> "TaskRecord":
