@@ -61,7 +61,7 @@ def process_pdf(path: Path, languages: list[str], timeout: int) -> ExtractionRes
         )
     with tempfile.TemporaryDirectory(prefix="document-lab-pdf-") as temporary:
         ocr_path = Path(temporary) / "ocr.pdf"
-        ocr_pdf(path, ocr_path, languages, timeout)
+        ocr_pdf(path, ocr_path, languages, timeout, redo=partial_fallback)
         text = extract_pdf_text(ocr_path, timeout, page_count)
     final_coverage = analyze_page_coverage(text, page_count)
     if page_count and len(re.findall(r"^--- PAGE", text, re.MULTILINE)) < page_count:

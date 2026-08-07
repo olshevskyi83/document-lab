@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -16,7 +16,12 @@ from app.config import get_settings
 from app.db import Database
 from app.models import DocumentType, TaskStatus
 from app.services.document_worker import Worker
-from app.services.intake import enqueue_document, place_approved_upload, store_upload
+from app.services.intake import (
+    enqueue_document,
+    enqueue_new_library_documents,
+    place_approved_upload,
+    store_upload,
+)
 from app.services.library import (
     create_catalog,
     delete_empty_catalog,
@@ -24,7 +29,6 @@ from app.services.library import (
     library_tree,
     rename_catalog,
     safe_library_path,
-    scan_documents,
 )
 from app.services.ocr import OCR_LANGUAGE_OPTIONS
 from app.services.report import atomic_write_text
@@ -114,24 +118,15 @@ def upload_document(
 
 @app.post("/library/scan")
 def scan_library(ocr_languages: str = Form("auto"), content_type: str = Form("auto")):
-    queued = duplicates = failed = 0
-    for path in scan_documents(settings.library_root):
-        try:
-            task = enqueue_document(
-                path,
-                settings=settings,
-                database=database,
-                content_type=content_type,
-                ocr_languages=ocr_languages,
-            )
-            if task.status == TaskStatus.DUPLICATE:
-                duplicates += 1
-            else:
-                queued += 1
-        except Exception:
-            failed += 1
-            logging.getLogger(__name__).exception("Unable to enqueue %s", path)
-    return redirect(message=f"Scan: {queued} queued, {duplicates} duplicates, {failed} failed")
+    result = enqueue_new_library_documents(
+        settings=settings,
+        database=database,
+        content_type=content_type,
+        ocr_languages=ocr_languages,
+    )
+    return redirect(
+        message=f"Library scan: {result.new} new, {result.already_known} already known, {result.failed} failed"
+    )
 
 
 @app.post("/library/catalogs")
@@ -169,7 +164,29 @@ def task_detail(request: Request, task_id: int):
     text = Path(task.text_path).read_text(encoding="utf-8") if task.text_path and Path(task.text_path).is_file() else ""
     metadata = json.loads(Path(task.metadata_path).read_text(encoding="utf-8")) if task.metadata_path and Path(task.metadata_path).is_file() else None
     report = json.loads(Path(task.report_path).read_text(encoding="utf-8")) if task.report_path and Path(task.report_path).is_file() else None
-    return templates.TemplateResponse(request, "task.html", {"task": task, "text": text, "metadata": metadata, "report": report})
+    method = metadata.get("extraction_method", "") if metadata else ""
+    method = {"docx_text": "docx", "epub_text": "epub", "txt_text": "txt", "md_text": "md"}.get(method, method)
+    return templates.TemplateResponse(
+        request,
+        "task.html",
+        {"task": task, "text": text, "metadata": metadata, "report": report, "processing_method": method},
+    )
+
+
+@app.get("/tasks/{task_id}/download-text")
+def download_task_text(task_id: int):
+    task = database.get_task(task_id)
+    if task is None or not task.text_path:
+        raise HTTPException(404, "Extracted text not found")
+    text_path = Path(task.text_path).resolve()
+    ready_root = settings.ready_root.resolve()
+    if ready_root not in text_path.parents or not text_path.is_file():
+        raise HTTPException(404, "Extracted text not found")
+    return FileResponse(
+        text_path,
+        media_type="text/plain; charset=utf-8",
+        filename=f"{Path(task.source_filename).stem}.txt",
+    )
 
 
 @app.post("/tasks/{task_id}/approve")

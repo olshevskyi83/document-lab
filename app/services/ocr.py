@@ -33,9 +33,17 @@ def ocr_image(image_path: Path, languages: list[str], timeout: int) -> str:
     return result.stdout
 
 
-def ocr_pdf(source: Path, target: Path, languages: list[str], timeout: int) -> None:
-    arguments = ["ocrmypdf", "--redo-ocr", "--deskew", "--rotate-pages"]
-    for language in languages:
-        arguments.extend(["-l", language])
+def build_ocr_pdf_command(source: Path, target: Path, languages: list[str], *, redo: bool) -> list[str]:
+    if redo:
+        arguments = ["ocrmypdf", "--redo-ocr", "--rotate-pages"]
+    else:
+        arguments = ["ocrmypdf", "--force-ocr", "--deskew", "--rotate-pages"]
+    if languages:
+        arguments.extend(["-l", "+".join(languages)])
     arguments.extend([str(source), str(target)])
+    return arguments
+
+
+def ocr_pdf(source: Path, target: Path, languages: list[str], timeout: int, *, redo: bool = False) -> None:
+    arguments = build_ocr_pdf_command(source, target, languages, redo=redo)
     run_command(arguments, timeout=timeout)

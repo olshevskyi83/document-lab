@@ -70,6 +70,21 @@ class Database:
                 ).fetchone()
         return TaskRecord.from_row(row) if row else None
 
+    def is_known_hash(self, sha256: str) -> bool:
+        known_statuses = (
+            TaskStatus.QUEUED,
+            TaskStatus.PROCESSING,
+            TaskStatus.READY,
+            TaskStatus.COMPLETED,
+            TaskStatus.DUPLICATE,
+        )
+        with self.connect() as connection:
+            row = connection.execute(
+                f"SELECT 1 FROM tasks WHERE sha256=? AND status IN ({','.join('?' for _ in known_statuses)}) LIMIT 1",
+                (sha256, *known_statuses),
+            ).fetchone()
+        return row is not None
+
     def create_task(self, **values: object) -> TaskRecord:
         now = utc_now()
         columns = (

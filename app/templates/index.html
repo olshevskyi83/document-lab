@@ -23,8 +23,9 @@
     <form action="/library/scan" method="post" class="inline">
       <select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select>
       <select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select>
-      <button>Scan recursively</button>
+      <button>Знайти нові файли</button>
     </form>
+    <p class="muted">Сканує всі каталоги Library та додає в обробку лише нові або змінені файли.</p>
     <details><summary>Manage catalogs</summary>
       <form action="/library/catalogs" method="post" class="inline"><input name="path" placeholder="Biology/Mycology" required><button>Create</button></form>
       <form action="/library/catalogs/rename" method="post" class="inline"><input name="path" placeholder="Existing/path" required><input name="new_name" placeholder="New name" required><button>Rename</button></form>

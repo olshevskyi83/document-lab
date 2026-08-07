@@ -1,6 +1,6 @@
 # Document Lab
 
-Document Lab is a local, Dockerized document-ingestion service for an Ubuntu homelab. It scans an unrestricted, recursively discovered Library tree or accepts uploads through a FastAPI/Jinja2 UI. Extraction results wait for manual approval before they are considered complete.
+Document Lab is a local, Dockerized document-ingestion service for an Ubuntu homelab. It scans an unrestricted, recursively discovered Library tree or accepts uploads through a FastAPI/Jinja2 UI. Library scans silently skip content whose SHA-256 is already known and enqueue only new or changed files. Extraction results wait for manual approval before they are considered complete.
 
 Document Lab deliberately does **not** connect to Qdrant, an LLM, or an embedding service. A disabled UI extension point documents the future boundary: `Add to Knowledge / Qdrant via Homelab Core`.
 

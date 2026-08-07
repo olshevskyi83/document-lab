@@ -9,10 +9,23 @@
 {% if task.status == 'failed' %}<form action="/tasks/{{ task.id }}/retry" method="post"><button>Retry failed task</button></form>{% endif %}
 </div>
 {% if task.error %}<pre class="error">{{ task.error }}</pre>{% endif %}
-<section class="grid two">
-  <article><h2>Metadata</h2><pre>{{ metadata | tojson(indent=2) if metadata else 'Not available yet' }}</pre></article>
-  <article><h2>Quality report</h2><pre>{{ report | tojson(indent=2) if report else 'Not available yet' }}</pre></article>
+<section>
+  <h2>Processing information</h2>
+  {% if metadata %}<dl class="processing-info">
+    <dt>Extraction method</dt><dd><code>{{ processing_method }}</code></dd>
+    <dt>OCR used</dt><dd>{{ 'Yes' if metadata.ocr_used else 'No' }}</dd>
+    <dt>OCR languages</dt><dd>{{ metadata.ocr_languages | join(', ') if metadata.ocr_languages else ('Auto/default' if metadata.ocr_used else '—') }}</dd>
+    <dt>Page count</dt><dd>{{ metadata.page_count if metadata.page_count is not none else '—' }}</dd>
+    <dt>Character count</dt><dd>{{ metadata.character_count }}</dd>
+    <dt>Word count</dt><dd>{{ metadata.word_count }}</dd>
+    <dt>Quality</dt><dd>{{ report.quality.score if report else '—' }} / sufficient: {{ 'Yes' if report and report.quality.sufficient else 'No' }}</dd>
+    <dt>Partial scan</dt><dd>{{ 'Yes' if metadata.get('partially_scanned', false) else 'No' }}{% if metadata.get('initial_text_coverage') is not none %} (initial text coverage {{ '%.1f%%' | format(metadata.get('initial_text_coverage') * 100) }}){% endif %}</dd>
+  </dl>{% else %}<p class="muted">Processing information is not available yet.</p>{% endif %}
 </section>
-<section><h2>Extracted text preview</h2><pre class="text-preview">{{ text[:100000] if text else 'Not available yet' }}</pre></section>
+<section><div class="section-heading"><h2>Extracted text preview</h2>{% if text %}<a class="button-link" href="/tasks/{{ task.id }}/download-text">Download TXT</a>{% endif %}</div><pre class="text-preview">{{ text if text else 'Not available yet' }}</pre></section>
+<section class="grid two">
+  <details><summary>Raw metadata</summary><pre>{{ metadata | tojson(indent=2) if metadata else 'Not available yet' }}</pre></details>
+  <details><summary>Raw quality report</summary><pre>{{ report | tojson(indent=2) if report else 'Not available yet' }}</pre></details>
+</section>
 <section><h2>Future extension</h2><button disabled title="Provided later by Homelab Core">Add to Knowledge / Qdrant via Homelab Core</button><p class="muted">Document Lab does not connect to Qdrant directly.</p></section>
 {% endblock %}

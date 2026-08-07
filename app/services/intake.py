@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import Settings
@@ -9,7 +10,7 @@ from app.db import Database
 from app.models import DocumentType, TaskRecord, TaskStatus
 from app.services.format_detection import detect_format
 from app.services.hash import sha256_file
-from app.services.library import safe_library_path
+from app.services.library import safe_library_path, scan_documents
 from app.services.ocr import parse_ocr_languages
 
 
@@ -30,12 +31,13 @@ def enqueue_document(
     ocr_languages: str = "auto",
     catalog: str | None = None,
     source_filename: str | None = None,
+    precomputed_sha256: str | None = None,
 ) -> TaskRecord:
     if content_type not in set(DocumentType):
         raise ValueError("Unsupported document type")
     parse_ocr_languages(ocr_languages)
     document_format = detect_format(path)
-    sha256 = sha256_file(path)
+    sha256 = precomputed_sha256 or sha256_file(path)
     document_id = f"doc-{sha256[:24]}"
     canonical = database.find_canonical_by_hash(sha256)
     try:
@@ -57,6 +59,41 @@ def enqueue_document(
         duplicate_of=canonical.document_id if canonical else None,
     )
     return database.create_task(**values)
+
+
+@dataclass(frozen=True)
+class LibraryScanResult:
+    new: int = 0
+    already_known: int = 0
+    failed: int = 0
+
+
+def enqueue_new_library_documents(
+    *,
+    settings: Settings,
+    database: Database,
+    content_type: str = DocumentType.AUTO,
+    ocr_languages: str = "auto",
+) -> LibraryScanResult:
+    new = already_known = failed = 0
+    for path in scan_documents(settings.library_root):
+        try:
+            sha256 = sha256_file(path)
+            if database.is_known_hash(sha256):
+                already_known += 1
+                continue
+            enqueue_document(
+                path,
+                settings=settings,
+                database=database,
+                content_type=content_type,
+                ocr_languages=ocr_languages,
+                precomputed_sha256=sha256,
+            )
+            new += 1
+        except Exception:
+            failed += 1
+    return LibraryScanResult(new=new, already_known=already_known, failed=failed)
 
 
 def store_upload(source, filename: str, settings: Settings) -> Path:

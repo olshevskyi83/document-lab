@@ -14,9 +14,10 @@ def test_partial_pdf_coverage_triggers_ocr(monkeypatch, tmp_path):
     ocr_calls = []
     monkeypatch.setattr(pdf, "pdf_info", lambda *_: {"pages": "4"})
     monkeypatch.setattr(pdf, "extract_pdf_text", lambda *_: next(extracted))
-    monkeypatch.setattr(pdf, "ocr_pdf", lambda *args: ocr_calls.append(args))
+    monkeypatch.setattr(pdf, "ocr_pdf", lambda *args, **kwargs: ocr_calls.append((args, kwargs)))
     result = pdf.process_pdf(source, ["eng"], 60)
     assert ocr_calls
+    assert ocr_calls[0][1]["redo"] is True
     assert result.method == "pdf_partial_ocr"
     assert result.ocr_used
     assert result.partially_scanned
