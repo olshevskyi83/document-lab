@@ -155,6 +155,9 @@ def upload_document(
     catalog: str = Form(""),
 ):
     try:
+        catalog = catalog.strip()
+        if not catalog:
+            raise ValueError("Оберіть каталог Library перед запуском оцифрування")
         catalog_path = safe_library_path(settings.library_root, catalog)
         if not catalog_path.is_dir():
             raise ValueError("Selected catalog does not exist")

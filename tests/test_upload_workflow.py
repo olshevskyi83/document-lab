@@ -1,5 +1,8 @@
 from io import BytesIO
 
+from fastapi.testclient import TestClient
+
+import app.main as web
 from app.config import Settings
 from app.db import Database
 from app.models import TaskStatus
@@ -70,3 +73,24 @@ def test_approval_avoids_filename_collisions(tmp_path):
     assert destination.name.endswith(".txt")
     assert destination.read_bytes() == original.read_bytes()
     assert (catalog / "book.txt").read_bytes() == b"existing different content"
+
+
+def test_manual_upload_requires_catalog_before_original_or_task_is_created(
+    monkeypatch, tmp_path
+):
+    settings, database = environment(tmp_path)
+    monkeypatch.setattr(web, "settings", settings)
+    monkeypatch.setattr(web, "database", database)
+    client = TestClient(web.app)
+
+    response = client.post(
+        "/upload",
+        files={"file": ("book.txt", b"must not be queued", "text/plain")},
+        data={"catalog": "", "ocr_languages": "auto", "content_type": "auto"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "%D0%9E%D0%B1%D0%B5%D1%80%D1%96%D1%82%D1%8C" in response.headers["location"]
+    assert database.list_tasks() == []
+    assert list(settings.originals_root.iterdir()) == []

@@ -25,7 +25,8 @@
       <label>Document<input type="file" name="file" required></label>
       <label>OCR language<select name="ocr_languages">{% for key in ocr_options %}<option value="{{ key }}">{{ ocr_labels[key] }}</option>{% endfor %}</select></label>
       <label>Document type<select name="content_type">{% for item in document_types %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select></label>
-      <label>Library catalog<select name="catalog"><option value="">Library root</option>{% for catalog in catalogs %}<option value="{{ catalog }}">{{ catalog }}</option>{% endfor %}</select></label>
+      <label>Library catalog<select name="catalog" required><option value="" selected disabled>Оберіть каталог</option>{% for catalog in catalogs %}<option value="{{ catalog }}">{{ catalog }}</option>{% endfor %}</select></label>
+      <small>Оцифрування не розпочнеться, доки каталог не вибрано.</small>
       <button>Upload and queue</button>
     </form>
   </article>
