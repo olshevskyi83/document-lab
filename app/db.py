@@ -77,6 +77,11 @@ class Database:
                 "finished_at=? WHERE status=?",
                 (TaskStatus.CANCELLED, utc_now(), TaskStatus.CANCELLING),
             )
+            connection.execute(
+                "UPDATE tasks SET stage='completed', stage_detail=NULL, progress=100 "
+                "WHERE status=? AND stage='ready'",
+                (TaskStatus.COMPLETED,),
+            )
 
     def find_canonical_by_hash(self, sha256: str) -> TaskRecord | None:
         with self.connect() as connection:
@@ -201,7 +206,8 @@ class Database:
         now = utc_now()
         with self.connect() as connection:
             cursor = connection.execute(
-                "UPDATE tasks SET status=?, progress=100, approved_at=?, updated_at=? "
+                "UPDATE tasks SET status=?, progress=100, stage='completed', stage_detail=NULL, "
+                "approved_at=?, updated_at=? "
                 "WHERE id=? AND status=?",
                 (TaskStatus.COMPLETED, now, now, task_id, TaskStatus.READY),
             )

@@ -14,6 +14,7 @@
     verifying: "Перевірка extraction",
     writing: "Запис результатів",
     ready: "Готово",
+    completed: "Завершено",
     failed: "Помилка",
     cancelling: "Скасування",
     cancelled: "Скасовано",
@@ -75,10 +76,15 @@
     row.querySelector(".stage-detail").textContent = task.stage_detail || "";
     const progress = row.querySelector("progress");
     const value = row.querySelector(".progress-value");
-    if (task.stage === "pdf_ocr" && task.status === "processing") {
+    if (task.status === "completed") {
+      progress.hidden = true;
+      value.textContent = "";
+    } else if (task.stage === "pdf_ocr" && task.status === "processing") {
+      progress.hidden = false;
       progress.removeAttribute("value");
       value.textContent = "Обробка триває…";
     } else {
+      progress.hidden = false;
       progress.value = task.progress;
       value.textContent = `${task.progress}%`;
     }

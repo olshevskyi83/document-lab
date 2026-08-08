@@ -37,3 +37,22 @@ def test_processing_tasks_are_recovered_on_restart(tmp_path):
     recovered = database.get_task(task.id)
     assert recovered.status == TaskStatus.QUEUED
     assert "Recovered" in recovered.error
+
+
+def test_approval_clears_ready_for_confirmation_progress_text(tmp_path):
+    database = Database(tmp_path / "db.sqlite3")
+    database.initialize()
+    task = database.create_task(
+        **values(
+            status=TaskStatus.READY,
+            progress=100,
+            stage="ready",
+            stage_detail="Готово до підтвердження",
+        )
+    )
+
+    assert database.approve(task.id)
+    approved = database.get_task(task.id)
+    assert approved.status == TaskStatus.COMPLETED
+    assert approved.stage == "completed"
+    assert approved.stage_detail is None
