@@ -139,6 +139,9 @@ class TaskRecord(BaseModel):
     approved_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    knowledge_status: str = "not_indexed"
+    knowledge_error: str | None = None
+    knowledge_updated_at: str | None = None
 
     @classmethod
     def from_row(cls, row: Any) -> "TaskRecord":

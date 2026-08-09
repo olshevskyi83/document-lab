@@ -29,6 +29,7 @@ from app.services.intake import (
     place_approved_upload,
     store_upload,
 )
+from app.services.knowledge_gateway import KnowledgeGateway, KnowledgeGatewayError
 from app.services.library import (
     create_catalog,
     delete_empty_catalog,
@@ -43,6 +44,7 @@ from app.services.report import atomic_write_text
 settings = get_settings()
 database = Database(settings.database_path)
 worker = Worker(settings, database)
+knowledge_gateway = KnowledgeGateway(settings)
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 runtime_dependencies: dict[str, str] = {}
@@ -235,7 +237,13 @@ def task_detail(request: Request, task_id: int):
     return templates.TemplateResponse(
         request,
         "task.html",
-        {"task": task, "text": text, "metadata": metadata, "report": report, "processing_method": method},
+        {
+            "task": task,
+            "text": text,
+            "metadata": metadata,
+            "report": report,
+            "processing_method": method,
+        },
     )
 
 
@@ -313,6 +321,54 @@ def approve_task(task_id: int):
             report["metadata"]["relative_path"] = library_destination.relative_to(settings.documents_root).as_posix()
         atomic_write_text(Path(task.report_path), json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     return redirect(message="Document approved")
+
+
+def update_knowledge_from_response(task_id: int, response: dict) -> str:
+    status = str(response.get("status") or "unknown")
+    database.update_knowledge(task_id, status=status, error=None)
+    return status
+
+
+@app.post("/tasks/{task_id}/knowledge/index")
+def index_task_in_knowledge(task_id: int):
+    task = database.get_task(task_id)
+    if task is None:
+        return redirect(error="Document not found")
+    try:
+        status = update_knowledge_from_response(task_id, knowledge_gateway.index(task))
+    except KnowledgeGatewayError as exc:
+        database.update_knowledge(task_id, error=str(exc))
+        return redirect(error=str(exc))
+    return redirect(message=f"Knowledge status: {status}")
+
+
+@app.post("/tasks/{task_id}/knowledge/reindex")
+def reindex_task_in_knowledge(task_id: int):
+    task = database.get_task(task_id)
+    if task is None:
+        return redirect(error="Document not found")
+    try:
+        status = update_knowledge_from_response(
+            task_id,
+            knowledge_gateway.index(task, reindex=True),
+        )
+    except KnowledgeGatewayError as exc:
+        database.update_knowledge(task_id, error=str(exc))
+        return redirect(error=str(exc))
+    return redirect(message=f"Knowledge status: {status}")
+
+
+@app.post("/tasks/{task_id}/knowledge/delete")
+def delete_task_from_knowledge(task_id: int):
+    task = database.get_task(task_id)
+    if task is None:
+        return redirect(error="Document not found")
+    try:
+        status = update_knowledge_from_response(task_id, knowledge_gateway.delete(task))
+    except KnowledgeGatewayError as exc:
+        database.update_knowledge(task_id, error=str(exc))
+        return redirect(error=str(exc))
+    return redirect(message=f"Knowledge status: {status}")
 
 
 @app.post("/tasks/{task_id}/retry")

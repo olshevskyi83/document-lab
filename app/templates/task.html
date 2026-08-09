@@ -45,5 +45,25 @@
   <details><summary>Raw metadata</summary><pre>{{ metadata | tojson(indent=2) if metadata else 'Not available yet' }}</pre></details>
   <details><summary>Raw quality report</summary><pre>{{ report | tojson(indent=2) if report else 'Not available yet' }}</pre></details>
 </section>
-<section><h2>Future extension</h2><button disabled title="Provided later by Homelab Core">Add to Knowledge / Qdrant via Homelab Core</button><p class="muted">Document Lab does not connect to Qdrant directly.</p></section>
+<section>
+  <h2>База знань Homelab</h2>
+  <dl class="processing-info">
+    <dt>Статус</dt><dd><code>{{ task.knowledge_status }}</code></dd>
+    <dt>Document ID</dt><dd><code>{{ task.document_id }}</code></dd>
+  </dl>
+  {% if task.knowledge_error %}<p class="error">{{ task.knowledge_error }}</p>{% endif %}
+  {% if task.status == 'completed' %}
+  <div class="actions">
+    {% if task.knowledge_status != 'indexed' %}
+    <form action="/tasks/{{ task.id }}/knowledge/index" method="post"><button>Додати до бази знань</button></form>
+    {% else %}
+    <form action="/tasks/{{ task.id }}/knowledge/reindex" method="post"><button>Переіндексувати</button></form>
+    <form action="/tasks/{{ task.id }}/knowledge/delete" method="post" onsubmit="return confirm('Видалити документ з Homelab Knowledge? Локальні файли залишаться без змін.')"><button class="danger">Видалити з бази знань</button></form>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="muted">Додавання доступне після обробки та ручного підтвердження документа.</p>
+  {% endif %}
+  <p class="muted">Document Lab передає текст у Homelab Core і ніколи не звертається до Qdrant напряму. Видалення з бази знань не видаляє оригінал, TXT, metadata або report.</p>
+</section>
 {% endblock %}

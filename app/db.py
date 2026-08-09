@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated_at TEXT NOT NULL,
     approved_at TEXT,
     started_at TEXT,
-    finished_at TEXT
+    finished_at TEXT,
+    knowledge_status TEXT NOT NULL DEFAULT 'not_indexed',
+    knowledge_error TEXT,
+    knowledge_updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_sha256 ON tasks(sha256);
@@ -63,6 +66,12 @@ class Database:
                 "stage_detail": "ALTER TABLE tasks ADD COLUMN stage_detail TEXT",
                 "started_at": "ALTER TABLE tasks ADD COLUMN started_at TEXT",
                 "finished_at": "ALTER TABLE tasks ADD COLUMN finished_at TEXT",
+                "knowledge_status": (
+                    "ALTER TABLE tasks ADD COLUMN knowledge_status "
+                    "TEXT NOT NULL DEFAULT 'not_indexed'"
+                ),
+                "knowledge_error": "ALTER TABLE tasks ADD COLUMN knowledge_error TEXT",
+                "knowledge_updated_at": "ALTER TABLE tasks ADD COLUMN knowledge_updated_at TEXT",
             }
             for column, statement in migrations.items():
                 if column not in columns:
@@ -181,6 +190,21 @@ class Database:
             connection.execute(
                 f"UPDATE tasks SET {assignments} WHERE id=?", tuple(values.values()) + (task_id,)
             )
+
+    def update_knowledge(
+        self,
+        task_id: int,
+        *,
+        status: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {
+            "knowledge_error": error,
+            "knowledge_updated_at": utc_now(),
+        }
+        if status is not None:
+            values["knowledge_status"] = status
+        self.update_task(task_id, **values)
 
     def finish_processing(self, task_id: int, **values: object) -> bool:
         values["updated_at"] = utc_now()

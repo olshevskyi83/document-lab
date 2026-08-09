@@ -2,7 +2,9 @@
 
 Document Lab is a local, Dockerized document-ingestion service for an Ubuntu homelab. It scans an unrestricted, recursively discovered Library tree or accepts uploads through a FastAPI/Jinja2 UI. Library scans silently skip content whose SHA-256 is already known and enqueue only new or changed files. Extraction results wait for manual approval before they are considered complete.
 
-Document Lab deliberately does **not** connect to Qdrant, an LLM, or an embedding service. A disabled UI extension point documents the future boundary: `Add to Knowledge / Qdrant via Homelab Core`.
+Document Lab deliberately does **not** connect directly to Qdrant, an LLM, or
+an embedding service. Approved documents can be registered, indexed,
+reindexed, and removed through the generic Homelab Core Knowledge API.
 
 ## MVP pipeline
 
@@ -67,6 +69,11 @@ Missing directories are created at startup. Library categories are never hardcod
 The normal Delete action removes a document from Document Lab completely. After validating exact stored paths, regular-file type, managed-root containment, absence of symlinks, and SHA-256 identity for originals, it removes generated text, metadata, report, the Document Lab-owned upload original, and the managed Library copy when present. It never removes catalog directories or searches by filename.
 
 Deletion is refused while a task is processing or cancelling; cancel it first. If a managed source or Library file cannot be removed safely, the database task is kept and the UI reports the error. Missing optional generated artifacts do not prevent cleanup.
+
+Local deletion and Knowledge deletion are intentionally independent. Removing a
+document from Homelab Knowledge deletes its vectors and records Core status
+`deleted`, but keeps the original, extracted TXT, metadata, and report. Removing
+a local Document Lab task does not silently cascade into Knowledge.
 
 On startup, SQLite is migrated in place with nullable `library_path`, `stage_detail`, `started_at`, and `finished_at` columns plus a defaulted `stage` column when needed. Existing tasks remain readable; Document Lab backfills `library_path` only when an exact existing Library file can be validated against the task SHA-256.
 
@@ -155,7 +162,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 12. Cancel queued PDF/DJVU uploads and confirm they never start. Cancel active OCR, confirm `cancelling` becomes `cancelled`, and verify no OCR child process or partial output remains.
 13. Stop the container while a task is processing, start it again, and confirm the task safely returns to the queue.
 14. Retry a failed task. Delete a non-processing task and confirm its managed original, Library copy, and generated artifacts are removed while catalog directories remain intact.
-15. Confirm no Qdrant, embedding, LLM, or external AI request is made.
+15. For an approved document, test Add, Reindex, and Remove from Knowledge. Confirm removal leaves all local artifacts intact and that Document Lab makes requests only to Homelab Core, never directly to Qdrant.
 
 ## Configuration
 
@@ -166,6 +173,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 3012
 | `LOGS_ROOT` | `/app/logs` | Application logs |
 | `WORKER_POLL_SECONDS` | `1` | Queue polling interval |
 | `COMMAND_TIMEOUT_SECONDS` | `3600` | Extraction/OCR subprocess timeout |
+| `CORE_URL` | `http://ai-gateway:8080` | Homelab Core base URL |
+| `CORE_TIMEOUT_SECONDS` | `300` | Knowledge API request timeout |
 
 Docker build arguments and the Compose runtime user default to `APP_UID=1000` and `APP_GID=1000`. Override both only when the owning homelab account uses different IDs. Document Lab never recursively changes ownership of `/home/homelabuser/RemoteDrop`.
 

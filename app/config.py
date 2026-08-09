@@ -13,6 +13,8 @@ class Settings:
     pipeline_version: str = "1.0.0"
     worker_poll_seconds: float = 1.0
     command_timeout_seconds: int = 3600
+    core_url: str = "http://ai-gateway:8080"
+    core_timeout_seconds: float = 300.0
 
     @property
     def documents_root(self) -> Path:
@@ -77,4 +79,6 @@ def get_settings() -> Settings:
         logs_root=Path(os.getenv("LOGS_ROOT", "/app/logs")),
         worker_poll_seconds=float(os.getenv("WORKER_POLL_SECONDS", "1")),
         command_timeout_seconds=int(os.getenv("COMMAND_TIMEOUT_SECONDS", "3600")),
+        core_url=os.getenv("CORE_URL", "http://ai-gateway:8080").rstrip("/"),
+        core_timeout_seconds=float(os.getenv("CORE_TIMEOUT_SECONDS", "300")),
     )

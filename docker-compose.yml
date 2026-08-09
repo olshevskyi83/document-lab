@@ -16,6 +16,8 @@ services:
       LOGS_ROOT: /app/logs
       WORKER_POLL_SECONDS: "1"
       COMMAND_TIMEOUT_SECONDS: "3600"
+      CORE_URL: "${CORE_URL:-http://ai-gateway:8080}"
+      CORE_TIMEOUT_SECONDS: "${CORE_TIMEOUT_SECONDS:-300}"
     volumes:
       - /home/homelabuser/RemoteDrop:/remote
       - ./data:/app/data
