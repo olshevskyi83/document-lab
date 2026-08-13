@@ -27,7 +27,7 @@ class KnowledgeGateway:
             raise KnowledgeGatewayError("Extracted text is outside Documents storage")
         return text_path.relative_to(documents_root).as_posix()
 
-    def _request(self, method: str, path: str, **kwargs: object) -> dict:
+    def _request(self, method: str, path: str, **kwargs: object) -> object:
         try:
             with httpx.Client(
                 base_url=self.settings.core_url,
@@ -48,9 +48,35 @@ class KnowledgeGateway:
             raise KnowledgeGatewayError(f"Homelab Core is unavailable: {exc}") from exc
 
         payload = response.json()
-        if not isinstance(payload, dict):
+        if not isinstance(payload, (dict, list)):
             raise KnowledgeGatewayError("Homelab Core returned an invalid response")
         return payload
+
+    def check_knowledge_exists(self, document_id: str) -> bool:
+        """
+        Check if a document exists in Homelab Core Knowledge CENTRAL REGISTRY.
+
+        Queries the authoritative central list (GET /knowledge/documents), not the
+        single-document endpoint, which may return stale/ghost status.
+
+        Returns True if document_id is found in central list, False otherwise.
+        This is a read-only check that does NOT trigger registration or indexing.
+
+        Homelab Core CENTRAL REGISTRY is the sole source of truth for Knowledge membership.
+        """
+        documents = self._request("GET", "/knowledge/documents")
+        if isinstance(documents, dict):
+            documents = documents.get("documents")
+        if not isinstance(documents, list):
+            raise KnowledgeGatewayError(
+                "Homelab Core returned an invalid Knowledge documents response"
+            )
+
+        return any(
+            (document.get("document_id") if isinstance(document, dict) else document)
+            == document_id
+            for document in documents
+        )
 
     def _register(self, task: TaskRecord) -> None:
         if task.status != TaskStatus.COMPLETED:
@@ -70,13 +96,19 @@ class KnowledgeGateway:
     def index(self, task: TaskRecord, *, reindex: bool = False) -> dict:
         self._register(task)
         operation = "reindex" if reindex else "index"
-        return self._request(
+        response = self._request(
             "POST",
             f"/knowledge/documents/{task.document_id}/{operation}",
         )
+        if not isinstance(response, dict):
+            raise KnowledgeGatewayError("Homelab Core returned an invalid index response")
+        return response
 
     def delete(self, task: TaskRecord) -> dict:
-        return self._request(
+        response = self._request(
             "DELETE",
             f"/knowledge/documents/{task.document_id}",
         )
+        if not isinstance(response, dict):
+            raise KnowledgeGatewayError("Homelab Core returned an invalid delete response")
+        return response

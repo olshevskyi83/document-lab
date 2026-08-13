@@ -234,6 +234,30 @@ def task_detail(request: Request, task_id: int):
     report = json.loads(Path(task.report_path).read_text(encoding="utf-8")) if task.report_path and Path(task.report_path).is_file() else None
     method = metadata.get("extraction_method", "") if metadata else ""
     method = {"docx_text": "docx", "epub_text": "epub", "txt_text": "txt", "md_text": "md"}.get(method, method)
+
+    # Check factual Core status (authoritative source of truth)
+    # Query central registry (not single-document endpoint which may be stale)
+    core_available = True
+    try:
+        knowledge_exists_in_core = knowledge_gateway.check_knowledge_exists(task.document_id)
+    except KnowledgeGatewayError as exc:
+        # An unavailable Core is not evidence that the document is absent.
+        core_available = False
+        knowledge_exists_in_core = False
+        logging.getLogger(__name__).warning(
+            "Could not read central Knowledge registry for task %s: %s", task_id, exc
+        )
+
+    # Reconcile local cache if stale
+    # If central list says absent but local cache says indexed → stale cache
+    if core_available and not knowledge_exists_in_core and task.knowledge_status == "indexed":
+        logging.getLogger(__name__).info(
+            "Reconciling stale local knowledge_status for task %s: "
+            "central registry absent but local cache=indexed", task_id
+        )
+        database.update_knowledge(task_id, status="not_indexed", error=None)
+        task = database.get_task(task_id)
+
     return templates.TemplateResponse(
         request,
         "task.html",
@@ -243,6 +267,8 @@ def task_detail(request: Request, task_id: int):
             "metadata": metadata,
             "report": report,
             "processing_method": method,
+            "core_available": core_available,
+            "knowledge_exists_in_core": knowledge_exists_in_core,
         },
     )
 
@@ -369,6 +395,48 @@ def delete_task_from_knowledge(task_id: int):
         database.update_knowledge(task_id, error=str(exc))
         return redirect(error=str(exc))
     return redirect(message=f"Knowledge status: {status}")
+
+
+@app.get("/api/tasks/{task_id}/knowledge/status")
+def check_task_knowledge_status(task_id: int) -> dict[str, object]:
+    """
+    Read-only endpoint to check the factual Knowledge status from Homelab Core.
+
+    Returns:
+    {
+        "exists_in_core": bool,  # Authoritative source of truth
+        "local_cache": str,      # Local knowledge_status field value (for reference)
+    }
+
+    Homelab Core is the single source of truth for Knowledge membership.
+    Does NOT trigger registration or indexing. It reconciles only a confirmed stale
+    local `indexed` cache after a successful central-list read shows absence.
+    """
+    task = database.get_task(task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+
+    # Check factual Core state (authoritative source of truth)
+    try:
+        exists_in_core = knowledge_gateway.check_knowledge_exists(task.document_id)
+        core_available = True
+    except KnowledgeGatewayError:
+        exists_in_core = False
+        core_available = False
+
+    # If local cache is stale (says indexed but Core says no), reconcile it
+    if core_available and not exists_in_core and task.knowledge_status == "indexed":
+        logging.getLogger(__name__).info(
+            "Reconciling stale local knowledge_status for task %s: "
+            "local=indexed but Core has no document", task_id
+        )
+        database.update_knowledge(task_id, status="not_indexed", error=None)
+
+    return {
+        "core_available": core_available,
+        "exists_in_core": exists_in_core,
+        "local_cache": database.get_task(task_id).knowledge_status,
+    }
 
 
 @app.post("/tasks/{task_id}/retry")
